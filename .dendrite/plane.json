@@ -1,0 +1,6 @@
+{
+  "identifier": "DCORE",
+  "project_id": "20913708-506e-4ae1-850c-64d13b9422df",
+  "name": "dendrite-core-rs",
+  "workspace": "dendrite-ws"
+}
