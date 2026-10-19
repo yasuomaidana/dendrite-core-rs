@@ -9,5 +9,7 @@
   "docs/cli/analyze.md",
   "docs/cli/query.md",
   "docs/quality/scrum-and-complexity-scorecard.md",
-  "docs/reports/2026-10-17-done-ticket-audit.md"
+  "docs/reports/2026-10-17-done-ticket-audit.md",
+  "docs/mcp/dendrite_query_slice.md",
+  "docs/mcp/dendrite_query_transpile.md"
 ]
