@@ -7,4 +7,4 @@ Computes McCabe cyclomatic and cognitive complexity metrics to enforce determini
 Implements BLAKE3 content-addressed hashing and chunk state management alongside tokenizer-accurate token counting for LLM inference.
 Acts as a decoupled stdio JSON-RPC 2.0 sidecar with guaranteed Go in-process fallback parity for the Dendrite ecosystem.
 
-For the authoritative architectural boundary, ownership matrix, and interface contract, see [docs/RESPONSIBILITIES.md](docs/RESPONSIBILITIES.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical specification and [docs/RESPONSIBILITIES.md](docs/RESPONSIBILITIES.md) for the ownership boundary and ticket map.
