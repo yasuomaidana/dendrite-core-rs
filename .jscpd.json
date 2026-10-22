@@ -1,0 +1,10 @@
+{
+  "minLines": 15,
+  "minTokens": 100,
+  "threshold": 0,
+  "format": ["go", "rust", "python", "typescript", "javascript"],
+  "ignore": ["**/target/**", "**/vendor/**", "**/testdata/**", "**/node_modules/**", "**/.dendrite/**", "**/*.pb.go", "**/*_generated.go"],
+  "reporters": ["console"],
+  "absolute": false,
+  "gitignore": true
+}
