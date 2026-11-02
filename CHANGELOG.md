@@ -4,6 +4,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- CI: `.github/workflows/complexity.yml` cross-checks function complexity with clippy `cognitive_complexity` (blocking) and `lizard` (report only until compared with the crate's own measure) (DCORE-14).
+
 ## [0.1.0]
 
 First release. The crate was a stub before; it now implements the operations of `docs/ARCHITECTURE.md` section 2 that this version covers (DCORE-1).
