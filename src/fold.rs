@@ -4,7 +4,6 @@ use serde::Serialize;
 use tree_sitter::Node;
 
 use crate::complexity::{is_function, symbol_name};
-use crate::error::CoreError;
 use crate::lang::{Lang, Spec};
 use crate::parse::{parse, text};
 use crate::tokens::estimate;
@@ -28,7 +27,7 @@ struct Edit {
 
 /// Replaces the body of every function whose symbol is not in `keep` with a placeholder (`...` in Python).
 /// Types, fields, contracts, doc comments, imports and constants stay; kept symbols keep their bodies.
-pub fn fold_signatures(lang: Lang, source: &str, keep: &[String]) -> Result<Folded, CoreError> {
+pub fn fold_signatures(lang: Lang, source: &str, keep: &[String]) -> Folded {
     let tree = parse(lang, source);
     let mut edits = Vec::new();
     let mut folded = Vec::new();
@@ -40,12 +39,12 @@ pub fn fold_signatures(lang: Lang, source: &str, keep: &[String]) -> Result<Fold
     };
     ctx.visit(tree.root_node(), &mut edits, &mut folded);
     let out = apply(source, &edits);
-    Ok(Folded {
+    Folded {
         tokens_before: estimate(source),
         tokens_after: estimate(&out),
         source: out,
         folded,
-    })
+    }
 }
 
 struct Ctx<'a> {

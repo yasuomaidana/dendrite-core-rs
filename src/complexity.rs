@@ -9,7 +9,6 @@
 use serde::Serialize;
 use tree_sitter::Node;
 
-use crate::error::CoreError;
 use crate::lang::{Lang, Spec};
 use crate::parse::{parse, text};
 
@@ -29,11 +28,11 @@ pub struct FunctionMetrics {
 
 /// Measures every function of `source`, in source order. Nested declarations get their own entry and do not
 /// count toward the function around them.
-pub fn complexity(lang: Lang, source: &str) -> Result<Vec<FunctionMetrics>, CoreError> {
+pub fn complexity(lang: Lang, source: &str) -> Vec<FunctionMetrics> {
     let tree = parse(lang, source);
     let mut out = Vec::new();
     collect(tree.root_node(), lang.spec(), source.as_bytes(), &mut out);
-    Ok(out)
+    out
 }
 
 fn has(kinds: &[&str], kind: &str) -> bool {

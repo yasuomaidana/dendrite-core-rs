@@ -28,7 +28,7 @@ fn every_function_is_within_the_limits() {
     let mut over = Vec::new();
     for file in files {
         let source = fs::read_to_string(&file).unwrap();
-        for m in complexity(Lang::Rust, &source).unwrap() {
+        for m in complexity(Lang::Rust, &source) {
             measured += 1;
             if m.cyclomatic > MAX_CYCLOMATIC || m.cognitive > MAX_COGNITIVE {
                 over.push(format!(

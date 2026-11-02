@@ -106,12 +106,14 @@ fn call_lang<P: DeserializeOwned, R: Serialize>(
 }
 
 fn ast_complexity(params: Value) -> Result<Value, CoreError> {
-    call_lang(params, |lang, p: SourceParams| complexity(lang, &p.source))
+    call_lang(params, |lang, p: SourceParams| {
+        Ok(complexity(lang, &p.source))
+    })
 }
 
 fn ast_fold(params: Value) -> Result<Value, CoreError> {
     call_lang(params, |lang, p: FoldParams| {
-        fold_signatures(lang, &p.source, &p.keep_symbols)
+        Ok(fold_signatures(lang, &p.source, &p.keep_symbols))
     })
 }
 
@@ -123,7 +125,7 @@ fn ast_last_node(params: Value) -> Result<Value, CoreError> {
 
 fn ast_changed(params: Value) -> Result<Value, CoreError> {
     call_lang(params, |lang, p: ChangedParams| {
-        changed_symbols(lang, &p.source, &p.hunks)
+        Ok(changed_symbols(lang, &p.source, &p.hunks))
     })
 }
 

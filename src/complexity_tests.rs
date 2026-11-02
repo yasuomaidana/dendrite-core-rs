@@ -2,7 +2,7 @@ use super::*;
 use rstest::rstest;
 
 fn first(lang: Lang, source: &str) -> FunctionMetrics {
-    complexity(lang, source).unwrap().remove(0)
+    complexity(lang, source).remove(0)
 }
 
 #[rstest]
@@ -151,8 +151,7 @@ fn nested_functions_count_separately() {
     let found = complexity(
         Lang::Rust,
         "fn outer() {\n    fn inner() {\n        if true {}\n    }\n}\n",
-    )
-    .unwrap();
+    );
     let got: Vec<_> = found
         .iter()
         .map(|m| (m.symbol.as_str(), m.start_line, m.end_line, m.cyclomatic))
@@ -162,9 +161,7 @@ fn nested_functions_count_separately() {
 
 #[test]
 fn source_without_functions_has_no_metrics() {
-    assert!(complexity(Lang::Go, "package p\nvar x = 1\n")
-        .unwrap()
-        .is_empty());
+    assert!(complexity(Lang::Go, "package p\nvar x = 1\n").is_empty());
 }
 
 #[test]

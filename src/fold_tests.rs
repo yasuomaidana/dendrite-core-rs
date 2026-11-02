@@ -3,7 +3,7 @@ use rstest::rstest;
 
 fn fold(lang: Lang, source: &str, keep: &[&str]) -> Folded {
     let keep: Vec<String> = keep.iter().map(|k| k.to_string()).collect();
-    fold_signatures(lang, source, &keep).unwrap()
+    fold_signatures(lang, source, &keep)
 }
 
 #[rstest]

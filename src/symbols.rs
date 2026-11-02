@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use tree_sitter::Node;
 
 use crate::complexity::{is_function, symbol_name};
-use crate::error::CoreError;
 use crate::lang::{Lang, Spec};
 use crate::parse::{parse, text};
 
@@ -34,11 +33,7 @@ struct Decl {
 
 /// For each hunk, the innermost declaration of each of its lines, one entry per run of lines. A run outside
 /// every declaration is one `file` entry that spans just those lines.
-pub fn changed_symbols(
-    lang: Lang,
-    source: &str,
-    hunks: &[Hunk],
-) -> Result<Vec<ChangedSymbol>, CoreError> {
+pub fn changed_symbols(lang: Lang, source: &str, hunks: &[Hunk]) -> Vec<ChangedSymbol> {
     let tree = parse(lang, source);
     let mut decls = Vec::new();
     declarations(tree.root_node(), lang.spec(), source.as_bytes(), &mut decls);
@@ -55,7 +50,7 @@ pub fn changed_symbols(
             }
         }
     }
-    Ok(out)
+    out
 }
 
 /// Folds the next line's entry into `last` when they are the same declaration, or both file scope (the run of
@@ -135,8 +130,7 @@ mod tests {
                 start_line: start,
                 end_line: end,
             }],
-        )
-        .unwrap();
+        );
         got.into_iter()
             .map(|c| (c.symbol, c.kind, c.start_line))
             .collect()
@@ -184,8 +178,7 @@ mod tests {
                 start_line: 1,
                 end_line: 1,
             }],
-        )
-        .unwrap();
+        );
         assert_eq!(got[0].symbol, "");
     }
 
@@ -201,8 +194,8 @@ mod tests {
                 end_line: 1,
             },
         ];
-        let got = changed_symbols(Lang::Go, GO, &hunks).unwrap();
+        let got = changed_symbols(Lang::Go, GO, &hunks);
         assert_eq!(got.iter().map(|c| c.hunk).collect::<Vec<_>>(), [0, 1]);
-        assert!(changed_symbols(Lang::Go, GO, &[]).unwrap().is_empty());
+        assert!(changed_symbols(Lang::Go, GO, &[]).is_empty());
     }
 }
