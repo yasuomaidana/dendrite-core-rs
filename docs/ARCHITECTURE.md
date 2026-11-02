@@ -55,12 +55,12 @@ Gate thresholds used by quality tooling: cyclomatic ≤ 10, cognitive ≤ 15.
 ### 2.5 `hash.blake3`
 Input: `{data}` (UTF-8) or `{data_b64}`. Output: `{hex}`.
 
-Chunk identity is `blake3(path ‖ symbol ‖ content)`. Every implementation (Rust or Go fallback) must produce byte-identical digests. Parity is enforced by shared test vectors in `tests/vectors/blake3.json`.
+Chunk identity (`hash.chunk_id`, input `{path, symbol, content}`) is `blake3(path 0x00 symbol 0x00 content)`: the NUL bytes keep `("a","bc")` and `("ab","c")` apart. Every implementation must produce byte-identical digests. Parity is enforced by shared test vectors in `tests/vectors/blake3.json`.
 
 ### 2.6 `tokens.count`
 Input: `{model, text}`. Output: `{count, exact}`.
 
-- `exact = true` when a local tokenizer for the model family is available (HuggingFace `tokenizers` files for open-weight models: Qwen, Llama, Mistral, Gemma).
+- `exact = true` when a local tokenizer for the model family is available (HuggingFace `tokenizers` files for open-weight models: Qwen, Llama, Mistral, Gemma). **Not implemented yet**: no tokenizer files are bundled, so every count is currently an estimate.
 - Otherwise `exact = false`, with `ceil(chars / 4 × 1.15)`. Callers then keep the safety margin or ask the provider's own counting endpoint.
 
 ### 2.7 `cfg.slice`
@@ -77,7 +77,19 @@ The ISR is language-neutral JSON used for translation verification and structura
 
 JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. The schemas for every method live in `proto/*.json`.
 
-Error codes: `-32602` invalid params (unknown language, bad base64), `-32000` operation error with `data.kind` (`parse_failed`, `no_complete_node`, `unknown_model`).
+Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-32602` invalid params (unknown language, bad base64, a missing field), `-32000` operation error with `data.kind` (`no_complete_node`). Syntax errors never fail an operation: they appear in the tree and each operation works around them. A request without an `id` is a notification and gets no answer.
+
+### 3.1 Status
+
+| Method | State |
+|---|---|
+| `health`, `ast.complexity`, `ast.fold_signatures`, `ast.last_complete_node`, `ast.changed_symbols`, `hash.blake3`, `hash.chunk_id`, `tokens.count` | implemented |
+| `cfg.slice`, `isr.extract` | not implemented (DCORE-5 and later); the server answers `-32601` |
+| exact `tokens.count` | needs bundled tokenizer files |
+
+### 3.2 Complexity details
+
+Each function of a file is measured once; a nested declaration (Rust `fn` in `fn`, Python `def` in `def`) is its own entry and does not count toward the one around it. Closures are scored with the code around them, one nesting level deeper; a closure bound to a name (`const f = () => ...`) is a function. The default arm of a `match`/`switch` adds no path. `else if` costs one, through its `else`. The crate holds itself to the limits: `tests/self_complexity.rs` fails when any of its own functions is above them.
 
 ## 4. Performance and parity targets
 
