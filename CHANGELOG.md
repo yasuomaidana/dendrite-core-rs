@@ -5,7 +5,11 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 ## [Unreleased]
 
 ### Added
+- `ast.defs_uses`: for line ranges, the symbols defined and the identifiers used; dendrite-git-rs builds its hunk dependency graph from it (DCORE-10).
 - CI: `.github/workflows/complexity.yml` cross-checks function complexity with clippy `cognitive_complexity` (blocking) and `lizard` (report only until compared with the crate's own measure) (DCORE-14).
+
+### Changed
+- The syntax-analysis modules moved to `src/ast/` so the source directory stays within the structure limit; every public path is re-exported unchanged (DCORE-10).
 
 ## [0.1.0]
 

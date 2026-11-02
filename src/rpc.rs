@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::complexity::complexity;
+use crate::defs_uses::defs_uses;
 use crate::error::CoreError;
 use crate::fold::fold_signatures;
 use crate::hash::{blake3_hex, chunk_id};
@@ -28,6 +29,7 @@ const METHODS: &[(&str, Handler)] = &[
     ("ast.fold_signatures", ast_fold),
     ("ast.last_complete_node", ast_last_node),
     ("ast.changed_symbols", ast_changed),
+    ("ast.defs_uses", ast_defs_uses),
     ("hash.blake3", hash_blake3),
     ("hash.chunk_id", hash_chunk_id),
     ("tokens.count", tokens_count),
@@ -62,6 +64,12 @@ struct BufferParams {
 struct ChangedParams {
     source: String,
     hunks: Vec<Hunk>,
+}
+
+#[derive(Deserialize)]
+struct DefsUsesParams {
+    source: String,
+    ranges: Vec<Hunk>,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +134,12 @@ fn ast_last_node(params: Value) -> Result<Value, CoreError> {
 fn ast_changed(params: Value) -> Result<Value, CoreError> {
     call_lang(params, |lang, p: ChangedParams| {
         Ok(changed_symbols(lang, &p.source, &p.hunks))
+    })
+}
+
+fn ast_defs_uses(params: Value) -> Result<Value, CoreError> {
+    call_lang(params, |lang, p: DefsUsesParams| {
+        Ok(defs_uses(lang, &p.source, &p.ranges))
     })
 }
 

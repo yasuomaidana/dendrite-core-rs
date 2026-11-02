@@ -73,6 +73,21 @@ Input: `{lang, source}`. Output: an ISR document listing types (fields, variants
 
 The ISR is language-neutral JSON used for translation verification and structural comparison. Code generation from the ISR is not part of this repository.
 
+### 2.9 `ast.defs_uses`
+Input: `{lang, source, ranges: [{start_line, end_line}]}`. Output: `[{range, defines: [name], uses: [name]}]`.
+
+For each line range of a source file, reports which symbols are defined in the range and which identifiers are used:
+- **defines:** names of declarations (functions, methods, types, structs, enums, traits, consts, statics, package-level vars) whose name node lies inside the range.
+- **uses:** identifier, type-identifier, and field-identifier references inside the range that are not the name of a declaration in that same range, excluding language keywords and literals.
+
+Both lists are de-duplicated and sorted. Ranges are 1-based and inclusive. Output entries correspond 1:1 to the input ranges in the same order.
+
+`uses` is an over-approximation on purpose: names that are local to the range (parameters, variables declared inside it) and built-in type names are included, because telling them apart needs scope resolution. A caller that builds a dependency graph from it (dendrite-git-rs) gets, at worst, an extra edge that keeps two hunks together; it never misses a real reference.
+
+### Source layout
+
+The syntax analysis lives in `src/ast/` (languages and their node tables, parsing, complexity, folding, last complete node, changed symbols, defs and uses), re-exported at the crate root so `dendrite_core::complexity` and the other paths do not change. `src/rpc.rs` is the JSON-RPC server, `src/hash.rs` and `src/tokens.rs` the rest of the operations.
+
 ## 3. Protocol
 
 JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. The schemas for every method live in `proto/*.json`.
@@ -83,7 +98,7 @@ Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-3
 
 | Method | State |
 |---|---|
-| `health`, `ast.complexity`, `ast.fold_signatures`, `ast.last_complete_node`, `ast.changed_symbols`, `hash.blake3`, `hash.chunk_id`, `tokens.count` | implemented |
+| `health`, `ast.complexity`, `ast.fold_signatures`, `ast.last_complete_node`, `ast.changed_symbols`, `ast.defs_uses`, `hash.blake3`, `hash.chunk_id`, `tokens.count` | implemented |
 | `cfg.slice`, `isr.extract` | not implemented (DCORE-5 and later); the server answers `-32601` |
 | exact `tokens.count` | needs bundled tokenizer files |
 

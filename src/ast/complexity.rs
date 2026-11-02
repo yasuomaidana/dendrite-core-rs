@@ -46,7 +46,7 @@ pub(crate) fn is_function(node: Node, spec: &Spec) -> bool {
 }
 
 /// The node that names a function: its `name`, or the innermost `declarator` (C and C++).
-fn name_node(node: Node) -> Option<Node> {
+pub(crate) fn name_node(node: Node) -> Option<Node> {
     let declarator = node.child_by_field_name("declarator");
     node.child_by_field_name("name")
         .or_else(|| declarator.and_then(declarator_name))

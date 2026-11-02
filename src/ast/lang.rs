@@ -108,6 +108,10 @@ pub struct Spec {
     pub labels: Kinds,
     /// Call expressions, to find recursion.
     pub calls: Kinds,
+    /// Declarations whose name node defines a symbol.
+    pub definitions: Kinds,
+    /// Reference identifier node kinds.
+    pub identifiers: Kinds,
 }
 
 const BOOL: Kinds = &["&&", "||"];
@@ -133,6 +137,14 @@ static GO: Spec = Spec {
     labeled_jumps: &["break_statement", "continue_statement"],
     labels: &["label_name"],
     calls: &["call_expression"],
+    definitions: &[
+        "function_declaration",
+        "method_declaration",
+        "type_spec",
+        "const_spec",
+        "var_spec",
+    ],
+    identifiers: &["identifier", "type_identifier", "field_identifier"],
 };
 
 static RUST: Spec = Spec {
@@ -163,6 +175,24 @@ static RUST: Spec = Spec {
     labeled_jumps: &["break_expression", "continue_expression"],
     labels: &["label"],
     calls: &["call_expression"],
+    definitions: &[
+        "function_item",
+        "struct_item",
+        "enum_item",
+        "union_item",
+        "trait_item",
+        "type_item",
+        "const_item",
+        "static_item",
+        "mod_item",
+        "macro_definition",
+    ],
+    identifiers: &[
+        "identifier",
+        "type_identifier",
+        "field_identifier",
+        "shorthand_field_identifier",
+    ],
 };
 
 static PYTHON: Spec = Spec {
@@ -188,6 +218,8 @@ static PYTHON: Spec = Spec {
     labeled_jumps: &[],
     labels: &[],
     calls: &["call"],
+    definitions: &["function_definition", "class_definition"],
+    identifiers: &["identifier"],
 };
 
 static ECMASCRIPT: Spec = Spec {
@@ -224,6 +256,21 @@ static ECMASCRIPT: Spec = Spec {
     labeled_jumps: &["break_statement", "continue_statement"],
     labels: &["statement_identifier"],
     calls: &["call_expression"],
+    definitions: &[
+        "function_declaration",
+        "generator_function_declaration",
+        "class_declaration",
+        "method_definition",
+        "interface_declaration",
+        "type_alias_declaration",
+        "enum_declaration",
+    ],
+    identifiers: &[
+        "identifier",
+        "type_identifier",
+        "property_identifier",
+        "shorthand_property_identifier",
+    ],
 };
 
 static C: Spec = Spec {
@@ -249,6 +296,14 @@ static C: Spec = Spec {
     labeled_jumps: &[],
     labels: &[],
     calls: &["call_expression"],
+    definitions: &[
+        "function_definition",
+        "struct_specifier",
+        "union_specifier",
+        "enum_specifier",
+        "type_definition",
+    ],
+    identifiers: &["identifier", "type_identifier", "field_identifier"],
 };
 
 static CPP: Spec = Spec {
@@ -280,6 +335,23 @@ static CPP: Spec = Spec {
     labeled_jumps: &[],
     labels: &[],
     calls: &["call_expression"],
+    definitions: &[
+        "function_definition",
+        "class_specifier",
+        "struct_specifier",
+        "union_specifier",
+        "enum_specifier",
+        "type_definition",
+        "alias_declaration",
+        "namespace_definition",
+        "concept_definition",
+    ],
+    identifiers: &[
+        "identifier",
+        "type_identifier",
+        "field_identifier",
+        "namespace_identifier",
+    ],
 };
 
 #[cfg(test)]
@@ -319,6 +391,8 @@ mod tests {
     #[case(Lang::Cpp)]
     fn every_language_has_functions_and_a_grammar(#[case] lang: Lang) {
         assert!(!lang.spec().functions.is_empty());
+        assert!(!lang.spec().definitions.is_empty());
+        assert!(!lang.spec().identifiers.is_empty());
         let mut parser = tree_sitter::Parser::new();
         assert!(parser.set_language(&lang.grammar()).is_ok());
     }
