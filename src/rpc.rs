@@ -33,15 +33,21 @@ const METHODS: &[(&str, Handler)] = &[
     ("tokens.count", tokens_count),
 ];
 
+/// Every `ast.*` method names the language; the rest of its params are `P`.
+#[derive(Deserialize)]
+struct WithLang<P> {
+    lang: String,
+    #[serde(flatten)]
+    rest: P,
+}
+
 #[derive(Deserialize)]
 struct SourceParams {
-    lang: String,
     source: String,
 }
 
 #[derive(Deserialize)]
 struct FoldParams {
-    lang: String,
     source: String,
     #[serde(default)]
     keep_symbols: Vec<String>,
@@ -49,13 +55,11 @@ struct FoldParams {
 
 #[derive(Deserialize)]
 struct BufferParams {
-    lang: String,
     buffer: String,
 }
 
 #[derive(Deserialize)]
 struct ChangedParams {
-    lang: String,
     source: String,
     hunks: Vec<Hunk>,
 }
@@ -93,28 +97,33 @@ fn health(_: Value) -> Result<Value, CoreError> {
     Ok(json!({"name": "dendrite-core", "version": env!("CARGO_PKG_VERSION"), "protocol": PROTOCOL}))
 }
 
+/// Like [`call`], for a method that works on one language.
+fn call_lang<P: DeserializeOwned, R: Serialize>(
+    params: Value,
+    f: impl FnOnce(Lang, P) -> Result<R, CoreError>,
+) -> Result<Value, CoreError> {
+    call(params, |p: WithLang<P>| f(Lang::from_id(&p.lang)?, p.rest))
+}
+
 fn ast_complexity(params: Value) -> Result<Value, CoreError> {
-    call(params, |p: SourceParams| {
-        complexity(Lang::from_id(&p.lang)?, &p.source)
-    })
+    call_lang(params, |lang, p: SourceParams| complexity(lang, &p.source))
 }
 
 fn ast_fold(params: Value) -> Result<Value, CoreError> {
-    call(params, |p: FoldParams| {
-        fold_signatures(Lang::from_id(&p.lang)?, &p.source, &p.keep_symbols)
+    call_lang(params, |lang, p: FoldParams| {
+        fold_signatures(lang, &p.source, &p.keep_symbols)
     })
 }
 
 fn ast_last_node(params: Value) -> Result<Value, CoreError> {
-    call(params, |p: BufferParams| {
-        last_complete_node(Lang::from_id(&p.lang)?, &p.buffer)
-            .map(|offset| json!({"offset": offset}))
+    call_lang(params, |lang, p: BufferParams| {
+        last_complete_node(lang, &p.buffer).map(|offset| json!({"offset": offset}))
     })
 }
 
 fn ast_changed(params: Value) -> Result<Value, CoreError> {
-    call(params, |p: ChangedParams| {
-        changed_symbols(Lang::from_id(&p.lang)?, &p.source, &p.hunks)
+    call_lang(params, |lang, p: ChangedParams| {
+        changed_symbols(lang, &p.source, &p.hunks)
     })
 }
 
