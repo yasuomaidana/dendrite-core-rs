@@ -41,18 +41,19 @@ fn answers_a_request_per_line() {
     assert_eq!(answer["result"][0]["cyclomatic"], 2);
 }
 
-/// Starts the binary, feeds it raw bytes and returns (stderr, exit code). With `hang_up_stdout` the read end
-/// of its stdout is closed before it answers, so its first write fails.
+/// Starts the binary, feeds it raw bytes and returns (stderr, exit code). With `hang_up_stdout` its stdout is a
+/// pipe nobody reads, closed before the child starts, so its first write fails (no race with the child).
 fn run_raw(stdin: &[u8], hang_up_stdout: bool) -> (String, Option<i32>) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_dendrite-core"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dendrite-core"));
+    command.stdin(Stdio::piped()).stderr(Stdio::piped());
     if hang_up_stdout {
-        drop(child.stdout.take());
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        command.stdout(writer);
+    } else {
+        command.stdout(Stdio::piped());
     }
+    let mut child = command.spawn().unwrap();
     child.stdin.take().unwrap().write_all(stdin).unwrap();
     let out = child.wait_with_output().unwrap();
     (String::from_utf8(out.stderr).unwrap(), out.status.code())
