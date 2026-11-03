@@ -47,9 +47,20 @@ fn answers(
 #[case::unknown_language_defs_uses("ast.defs_uses", json!({"lang": "cobol", "source": "", "ranges": []}), -32602, None)]
 #[case::missing_field_defs_uses("ast.defs_uses", json!({"lang": "go", "source": ""}), -32602, None)]
 #[case::missing_field("ast.complexity", json!({"lang": "go"}), -32602, None)]
+#[case::missing_field_fold("ast.fold_signatures", json!({"lang": "go"}), -32602, None)]
+#[case::missing_field_last("ast.last_complete_node", json!({"lang": "go"}), -32602, None)]
+#[case::missing_field_changed("ast.changed_symbols", json!({"lang": "go", "source": ""}), -32602, None)]
+#[case::missing_field_changed_source("ast.changed_symbols", json!({"lang": "go", "hunks": []}), -32602, None)]
+#[case::missing_lang_complexity("ast.complexity", json!({"source": ""}), -32602, None)]
+#[case::missing_lang_fold("ast.fold_signatures", json!({"source": ""}), -32602, None)]
+#[case::missing_lang_last("ast.last_complete_node", json!({"buffer": ""}), -32602, None)]
+#[case::missing_lang_changed("ast.changed_symbols", json!({"source": "", "hunks": []}), -32602, None)]
+#[case::missing_lang_defs_uses("ast.defs_uses", json!({"source": "", "ranges": []}), -32602, None)]
 #[case::both_hash_inputs("hash.blake3", json!({"data": "a", "data_b64": "YQ=="}), -32602, None)]
 #[case::no_hash_input("hash.blake3", json!({}), -32602, None)]
 #[case::bad_base64("hash.blake3", json!({"data_b64": "!!"}), -32602, None)]
+#[case::chunk_id_missing_params("hash.chunk_id", json!({}), -32602, None)]
+#[case::tokens_missing_params("tokens.count", json!({}), -32602, None)]
 #[case::nothing_complete("ast.last_complete_node", json!({"lang": "go", "buffer": ""}), -32000, Some("no_complete_node"))]
 fn fails(
     #[case] method: &str,
@@ -65,6 +76,7 @@ fn fails(
 #[rstest]
 #[case::not_json("{nope", Value::Null, -32700)]
 #[case::no_method(r#"{"jsonrpc":"2.0","id":3}"#, json!(3), -32600)]
+#[case::non_string_method(r#"{"jsonrpc":"2.0","id":4,"method":42}"#, json!(4), -32600)]
 fn malformed_requests(#[case] line: &str, #[case] id: Value, #[case] code: i64) {
     let r = ask(line);
     assert_eq!(
@@ -76,11 +88,15 @@ fn malformed_requests(#[case] line: &str, #[case] id: Value, #[case] code: i64) 
 #[test]
 fn notifications_get_no_answer() {
     assert_eq!(handle_line(r#"{"jsonrpc":"2.0","method":"health"}"#), None);
+    assert_eq!(handle_line(r#"{}"#), None);
+    assert_eq!(handle_line("123"), None);
+    assert_eq!(handle_line("[]"), None);
+    assert_eq!(handle_line("true"), None);
 }
 
 #[test]
 fn serve_answers_each_line_and_skips_blanks() {
-    let input = "{\"id\":1,\"method\":\"health\"}\n\n   \n{\"id\":2,\"method\":\"nope\"}\n";
+    let input = "{\"id\":1,\"method\":\"health\"}\n\n{\"method\":\"health\"}\n   \n{\"id\":2,\"method\":\"nope\"}\n";
     let mut out = Vec::new();
     serve(input.as_bytes(), &mut out).unwrap();
     let lines: Vec<_> = String::from_utf8(out)
@@ -90,6 +106,10 @@ fn serve_answers_each_line_and_skips_blanks() {
         .collect();
     assert_eq!(lines.len(), 2);
     assert!(lines[0].contains("\"result\"") && lines[1].contains("-32601"));
+
+    let mut empty_out = Vec::new();
+    assert!(serve("".as_bytes(), &mut empty_out).is_ok());
+    assert!(empty_out.is_empty());
 }
 
 /// An output that refuses writes (`write_ok` false) or accepts them and then fails to flush.
@@ -113,11 +133,35 @@ impl Write for Failing {
 #[rstest]
 #[case::version(&["dendrite-core", "--version"], "", 0, "dendrite-core 0.1.0")]
 #[case::serves(&["dendrite-core"], "{\"id\":1,\"method\":\"health\"}\n", 0, "")]
+#[case::other_arg(&["dendrite-core", "--unknown"], "{\"id\":1,\"method\":\"health\"}\n", 0, "")]
+#[case::empty_args(&[], "{\"id\":1,\"method\":\"health\"}\n", 0, "")]
 fn run_modes(#[case] args: &[&str], #[case] input: &str, #[case] code: i32, #[case] stderr: &str) {
     let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     let (mut out, mut err) = (Vec::new(), Vec::new());
     assert_eq!(run(&args, input.as_bytes(), &mut out, &mut err), code);
     assert_eq!(String::from_utf8(err).unwrap().trim(), stderr);
+}
+
+#[rstest]
+#[case::null_id(r#"{"jsonrpc":"2.0","id":null,"method":"health"}"#, Value::Null)]
+#[case::string_id(r#"{"jsonrpc":"2.0","id":"abc","method":"health"}"#, json!("abc"))]
+fn answers_with_matching_id_type(#[case] line: &str, #[case] want_id: Value) {
+    let r = ask(line);
+    assert_eq!(r["id"], want_id);
+}
+
+#[test]
+fn run_version_handles_failing_error_stream() {
+    let args = vec!["dendrite-core".to_string(), "--version".to_string()];
+    assert_eq!(
+        run(
+            &args,
+            "".as_bytes(),
+            Vec::new(),
+            Failing { write_ok: false }
+        ),
+        0
+    );
 }
 
 #[rstest]
@@ -128,5 +172,37 @@ fn run_reports_io_failures(#[case] input: &[u8], #[case] write_ok: bool, #[case]
     let args = vec!["dendrite-core".to_string()];
     let mut err = Vec::new();
     assert_eq!(run(&args, input, Failing { write_ok }, &mut err), 1);
+    assert!(String::from_utf8(err).unwrap().contains(message));
+}
+
+#[rstest]
+#[case::failing_write(false, "closed")]
+#[case::failing_flush(true, "flush failed")]
+fn serve_returns_io_error_on_bad_writer(#[case] write_ok: bool, #[case] message: &str) {
+    let input = &b"{\"id\":1,\"method\":\"health\"}\n"[..];
+    let err = serve(input, Failing { write_ok }).unwrap_err();
+    assert!(err.to_string().contains(message));
+}
+
+/// When every line is a notification or blank, `serve` never writes and must return `Ok(())` even
+/// with a writer that would fail on flush — covering the `Ok(())` tail in every instantiation.
+#[rstest]
+#[case::notification("{\"jsonrpc\":\"2.0\",\"method\":\"health\"}\n")]
+#[case::blank("   \n")]
+fn serve_returns_ok_when_no_response_is_written(#[case] input: &str) {
+    serve(input.as_bytes(), Failing { write_ok: true }).unwrap();
+}
+
+/// Drive the `run` error-reporting arm (the `writeln!(errors, "dendrite-core: {e}")` line)
+/// through `run`'s own monomorphisation by giving it a writer that fails on flush.
+#[rstest]
+#[case::failing_flush(true, "flush failed")]
+#[case::failing_write(false, "closed")]
+fn run_stderr_error_arm_via_run_monomorphisation(#[case] write_ok: bool, #[case] message: &str) {
+    let args = vec!["dendrite-core".to_string()];
+    let input = b"{\"id\":1,\"method\":\"health\"}\n".as_ref();
+    let mut err = Vec::new();
+    let code = run(&args, input, Failing { write_ok }, &mut err);
+    assert_eq!(code, 1);
     assert!(String::from_utf8(err).unwrap().contains(message));
 }

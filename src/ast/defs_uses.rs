@@ -42,13 +42,11 @@ fn is_literal(s: &str) -> bool {
 }
 
 fn is_decl_name(node: Node) -> bool {
-    let Some(parent) = node.parent() else {
-        return false;
-    };
-    if parent.child_by_field_name("name") == Some(node) {
-        return true;
-    }
-    parent.child_by_field_name("declarator").is_some() && name_node(parent) == Some(node)
+    node.parent().is_some_and(|parent| {
+        parent.child_by_field_name("name") == Some(node)
+            || (parent.child_by_field_name("declarator").is_some()
+                && name_node(parent) == Some(node))
+    })
 }
 
 fn check_decl<'a>(node: Node<'a>, spec: &Spec, source: &'a [u8], decls: &mut Vec<DeclEntry<'a>>) {
@@ -347,6 +345,39 @@ mod tests {
     #[test]
     fn empty_ranges_yields_empty() {
         assert!(defs_uses(Lang::Rust, "fn f() {}", &[]).is_empty());
+    }
+
+    #[rstest]
+    #[case::c_struct(Lang::C, "struct { int x; };\n")]
+    #[case::c_union(Lang::C, "union { int x; };\n")]
+    #[case::cpp_namespace(Lang::Cpp, "namespace {}\n")]
+    #[case::rust_missing(Lang::Rust, "fn () {}\n")]
+    #[case::python_missing(Lang::Python, "def (): pass\n")]
+    #[case::go_missing(Lang::Go, "package p\nfunc () {}\n")]
+    fn anonymous_definitions_do_not_define_symbols(#[case] lang: Lang, #[case] source: &str) {
+        let hunk = Hunk {
+            start_line: 1,
+            end_line: 2,
+        };
+        let res = defs_uses(lang, source, &[hunk]);
+        assert_eq!(res.len(), 1);
+        assert!(res[0].defines.is_empty());
+    }
+
+    /// `int x = g();` in C/C++ puts `x` on the `declarator` branch of
+    /// `is_decl_name`, so it must be suppressed from uses and `g` must appear.
+    #[rstest]
+    #[case::c(Lang::C, "int x = g();\n")]
+    #[case::cpp(Lang::Cpp, "int x = g();\n")]
+    fn declarator_name_not_reported_as_use(#[case] lang: Lang, #[case] source: &str) {
+        let hunk = Hunk {
+            start_line: 1,
+            end_line: 1,
+        };
+        let res = defs_uses(lang, source, &[hunk]);
+        assert_eq!(res.len(), 1);
+        assert!(!res[0].uses.contains(&"x".to_string()));
+        assert!(res[0].uses.contains(&"g".to_string()));
     }
 
     #[test]
