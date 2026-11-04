@@ -3,8 +3,9 @@
 use serde::Serialize;
 use tree_sitter::Node;
 
-use crate::complexity::{is_function, symbol_name};
-use crate::lang::{Lang, Spec};
+use crate::complexity::symbol_name;
+use crate::kinds::{table, KindTable};
+use crate::lang::Lang;
 use crate::parse::{parse, text};
 use crate::tokens::estimate;
 
@@ -33,7 +34,7 @@ pub fn fold_signatures(lang: Lang, source: &str, keep: &[String]) -> Folded {
     let mut folded = Vec::new();
     let ctx = Ctx {
         lang,
-        spec: lang.spec(),
+        kinds: table(lang),
         source,
         keep,
     };
@@ -49,14 +50,14 @@ pub fn fold_signatures(lang: Lang, source: &str, keep: &[String]) -> Folded {
 
 struct Ctx<'a> {
     lang: Lang,
-    spec: &'static Spec,
+    kinds: &'static KindTable,
     source: &'a str,
     keep: &'a [String],
 }
 
 impl Ctx<'_> {
     fn visit(&self, node: Node, edits: &mut Vec<Edit>, folded: &mut Vec<String>) {
-        if is_function(node, self.spec) {
+        if self.kinds.is_function(node) {
             self.fold(node, edits, folded);
             return;
         }
@@ -68,7 +69,7 @@ impl Ctx<'_> {
 
     /// A function is folded or kept whole; nothing inside it is visited either way.
     fn fold(&self, func: Node, edits: &mut Vec<Edit>, folded: &mut Vec<String>) {
-        let symbol = symbol_name(func, self.source.as_bytes(), self.spec);
+        let symbol = symbol_name(func, self.source.as_bytes(), self.kinds);
         let Some(body) = func.child_by_field_name("body") else {
             return;
         };

@@ -90,7 +90,7 @@ The syntax analysis lives in `src/ast/` (languages and their node tables, parsin
 
 ## 3. Protocol
 
-JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. The schemas for every method live in `proto/*.json`.
+JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. The schemas for every method live in `proto/*.json`. Protocol 1.1.0 added `ast.complexity_batch`: `{files: [{lang, source}]}` returns `{results: [{functions} | {error}]}` in request order, measured on up to one thread per core.
 
 Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-32602` invalid params (unknown language, bad base64, a missing field), `-32000` operation error with `data.kind` (`no_complete_node`). Syntax errors never fail an operation: they appear in the tree and each operation works around them. A request without an `id` is a notification and gets no answer.
 
@@ -108,7 +108,7 @@ Each function of a file is measured once; a nested declaration (Rust `fn` in `fn
 
 ## 4. Performance and parity targets
 
-- At least 3× faster than the in-process Go providers on the same inputs.
+- At least 3× faster than the in-process Go providers on the same inputs. **Measured (DCORE-13, 503 Go files, 3.0 MB, 8-core Apple silicon, release build):** the Go analyzer took 0.10 s in one process. `ast.complexity` one file per request took 0.40 s at first (4× slower); classifying nodes by kind id and walking each tree with one cursor brought it to 0.31 s, and the profile then shows tree-sitter parsing as about two thirds of what is left. `ast.complexity_batch` (all files in one request, parsed on all cores) takes 0.07 s: 1.4× faster than the single-threaded Go analyzer, with identical results. The 3× target is not met on this corpus: it would need 0.033 s, below what parsing 3 MB costs on this machine. For one file per request there is no concurrency to use, so callers that measure many files should send a batch.
 - Folding and complexity results identical to the Go provider for Go sources (golden tests).
 - BLAKE3 digests byte-identical across implementations.
 

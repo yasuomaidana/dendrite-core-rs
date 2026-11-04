@@ -3,8 +3,9 @@
 use serde::{Deserialize, Serialize};
 use tree_sitter::Node;
 
-use crate::complexity::{is_function, symbol_name};
-use crate::lang::{Lang, Spec};
+use crate::complexity::symbol_name;
+use crate::kinds::{table, KindTable, TYPE};
+use crate::lang::Lang;
 use crate::parse::{parse, text};
 
 /// A changed range of lines, 1-based and inclusive.
@@ -36,7 +37,7 @@ struct Decl {
 pub fn changed_symbols(lang: Lang, source: &str, hunks: &[Hunk]) -> Vec<ChangedSymbol> {
     let tree = parse(lang, source);
     let mut decls = Vec::new();
-    declarations(tree.root_node(), lang.spec(), source.as_bytes(), &mut decls);
+    declarations(tree.root_node(), table(lang), source.as_bytes(), &mut decls);
     let mut out: Vec<ChangedSymbol> = Vec::new();
     for (index, hunk) in hunks.iter().enumerate() {
         let before = out.len();
@@ -87,10 +88,10 @@ fn entry_for(index: usize, line: usize, decls: &[Decl]) -> ChangedSymbol {
     }
 }
 
-fn declarations(node: Node, spec: &Spec, source: &[u8], out: &mut Vec<Decl>) {
-    if is_function(node, spec) || spec.types.contains(&node.kind()) {
+fn declarations(node: Node, kinds: &KindTable, source: &[u8], out: &mut Vec<Decl>) {
+    if kinds.is_function(node) || kinds.has(node, TYPE) {
         out.push(Decl {
-            symbol: declared_name(node, source, spec),
+            symbol: declared_name(node, source, kinds),
             kind: node.kind().to_string(),
             start_line: node.start_position().row + 1,
             end_line: node.end_position().row + 1,
@@ -98,14 +99,14 @@ fn declarations(node: Node, spec: &Spec, source: &[u8], out: &mut Vec<Decl>) {
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        declarations(child, spec, source, out);
+        declarations(child, kinds, source, out);
     }
 }
 
 /// A function's symbol, or a type's `name` (an `impl` block has its `type`).
-fn declared_name(node: Node, source: &[u8], spec: &Spec) -> String {
-    if is_function(node, spec) {
-        return symbol_name(node, source, spec);
+fn declared_name(node: Node, source: &[u8], kinds: &KindTable) -> String {
+    if kinds.is_function(node) {
+        return symbol_name(node, source, kinds);
     }
     let named = node
         .child_by_field_name("name")

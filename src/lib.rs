@@ -4,13 +4,14 @@
 //! `dendrite_core::fold`, `dendrite_core::Lang` and the rest keep their paths.
 
 pub mod ast;
+pub mod batch;
 pub mod error;
 pub mod hash;
 pub mod rpc;
 pub mod tokens;
 
 pub use ast::defs_uses::{defs_uses, RangeSymbols};
-pub use ast::{complexity, defs_uses, fold, lang, last_node, parse, symbols};
+pub use ast::{complexity, defs_uses, fold, kinds, lang, last_node, parse, symbols};
 pub use error::CoreError;
 pub use lang::Lang;
 

@@ -37,6 +37,24 @@ const IDS: &[(&str, Lang)] = &[
 ];
 
 impl Lang {
+    /// Every language, in discriminant order.
+    #[cfg(test)]
+    pub(crate) const ALL: [Lang; 8] = [
+        Lang::Go,
+        Lang::Rust,
+        Lang::Python,
+        Lang::TypeScript,
+        Lang::Tsx,
+        Lang::JavaScript,
+        Lang::C,
+        Lang::Cpp,
+    ];
+
+    /// The language's position in [`Lang::ALL`], for tables that hold one entry per language.
+    pub(crate) fn index(self) -> usize {
+        self as usize
+    }
+
     /// Looks a language up by its id (`go`, `rust`, `ts`, ...); callers always name the language.
     pub fn from_id(id: &str) -> Result<Lang, CoreError> {
         let wanted = id.trim().to_ascii_lowercase();
@@ -72,7 +90,7 @@ impl Lang {
     }
 }
 
-type Kinds = &'static [&'static str];
+pub(crate) type Kinds = &'static [&'static str];
 
 /// Which grammar node kinds play which part. Kinds are matched by name.
 pub struct Spec {

@@ -4,6 +4,7 @@
 pub mod complexity;
 pub mod defs_uses;
 pub mod fold;
+pub mod kinds;
 pub mod lang;
 pub mod last_node;
 pub mod parse;

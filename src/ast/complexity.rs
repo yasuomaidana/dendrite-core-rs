@@ -5,11 +5,18 @@
 //!
 //! Cognitive adds, for each structure that breaks the linear flow, 1 plus its nesting depth; for `else if`
 //! and `else`, 1; for each run of one boolean operator, 1; for a labelled jump or a recursive call, 1.
+//!
+//! The trees are walked with one cursor each and nodes are classified by kind id ([`KindTable`]), never by
+//! kind name: that is what keeps this faster than parsing the source (DCORE-13).
 
 use serde::Serialize;
 use tree_sitter::Node;
 
-use crate::lang::{Lang, Spec};
+use crate::kinds::{
+    table, KindTable, BOOL_NODE, BOOL_OP, CALL, CASE, CLOSURE, ELIF, ELSE, ELSE_CLAUSE, FLOW, IF,
+    JUMP, LABEL, LABELED_JUMP, SWITCH, TERNARY,
+};
+use crate::lang::Lang;
 use crate::parse::{parse, text};
 
 /// The limits quality tooling holds a function to.
@@ -30,19 +37,23 @@ pub struct FunctionMetrics {
 /// count toward the function around them.
 pub fn complexity(lang: Lang, source: &str) -> Vec<FunctionMetrics> {
     let tree = parse(lang, source);
+    let kinds = table(lang);
     let mut out = Vec::new();
-    collect(tree.root_node(), lang.spec(), source.as_bytes(), &mut out);
-    out
-}
-
-fn has(kinds: &[&str], kind: &str) -> bool {
-    kinds.contains(&kind)
-}
-
-pub(crate) fn is_function(node: Node, spec: &Spec) -> bool {
-    let kind = node.kind();
-    has(spec.functions, kind)
-        || (has(spec.closures, kind) && node.parent().is_some_and(|p| has(spec.binders, p.kind())))
+    let mut cursor = tree.walk();
+    loop {
+        let node = cursor.node();
+        if kinds.is_function(node) {
+            out.push(measure(node, kinds, source.as_bytes()));
+        }
+        if cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return out;
+            }
+        }
+    }
 }
 
 /// The node that names a function: its `name`, or the innermost `declarator` (C and C++).
@@ -61,9 +72,9 @@ fn declarator_name(declarator: Node) -> Option<Node> {
     }
 }
 
-pub(crate) fn symbol_name(node: Node, source: &[u8], spec: &Spec) -> String {
+pub(crate) fn symbol_name(node: Node, source: &[u8], kinds: &KindTable) -> String {
     let owner = match node.parent() {
-        Some(parent) if has(spec.closures, node.kind()) => parent,
+        Some(parent) if kinds.has(node, CLOSURE) => parent,
         _ => node,
     };
     name_node(owner)
@@ -71,26 +82,16 @@ pub(crate) fn symbol_name(node: Node, source: &[u8], spec: &Spec) -> String {
         .unwrap_or_default()
 }
 
-fn collect(node: Node, spec: &Spec, source: &[u8], out: &mut Vec<FunctionMetrics>) {
-    if is_function(node, spec) {
-        out.push(measure(node, spec, source));
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect(child, spec, source, out);
-    }
-}
-
-fn measure(func: Node, spec: &Spec, source: &[u8]) -> FunctionMetrics {
-    let symbol = symbol_name(func, source, spec);
+fn measure(func: Node, kinds: &KindTable, source: &[u8]) -> FunctionMetrics {
+    let symbol = symbol_name(func, source, kinds);
     let mut scorer = Scorer {
-        spec,
+        kinds,
         source,
         name: &symbol,
         cyclomatic: 1,
         cognitive: 0,
     };
-    scorer.walk(func, 0, true);
+    scorer.score(func);
     FunctionMetrics {
         start_line: func.start_position().row + 1,
         end_line: func.end_position().row + 1,
@@ -101,7 +102,7 @@ fn measure(func: Node, spec: &Spec, source: &[u8]) -> FunctionMetrics {
 }
 
 struct Scorer<'a> {
-    spec: &'a Spec,
+    kinds: &'a KindTable,
     source: &'a [u8],
     name: &'a str,
     cyclomatic: u32,
@@ -109,28 +110,39 @@ struct Scorer<'a> {
 }
 
 impl Scorer<'_> {
-    fn walk(&mut self, node: Node, nesting: u32, root: bool) {
-        if !root && is_function(node, self.spec) {
+    /// Scores `func` and everything in it that is not a function of its own. One cursor walks the subtree;
+    /// `nesting` holds, for each open node, the level its children are at.
+    fn score(&mut self, func: Node) {
+        self.cyclomatic += self.decisions(func);
+        let mut cursor = func.walk();
+        let mut nesting = vec![0u32];
+        if !cursor.goto_first_child() {
             return;
         }
-        self.cyclomatic += self.decisions(node);
-        let deeper = if root {
-            nesting
-        } else {
-            self.cognitive(node, nesting)
-        };
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.walk(child, deeper, false);
+        loop {
+            let node = cursor.node();
+            if !self.kinds.is_function(node) {
+                self.cyclomatic += self.decisions(node);
+                let deeper = self.cognitive(node, nesting[nesting.len() - 1]);
+                nesting.push(deeper);
+                if cursor.goto_first_child() {
+                    continue;
+                }
+                nesting.pop();
+            }
+            while !cursor.goto_next_sibling() {
+                if !cursor.goto_parent() || cursor.node() == func {
+                    return;
+                }
+                nesting.pop();
+            }
         }
     }
 
     /// Decision points this node adds to the cyclomatic count.
     fn decisions(&self, node: Node) -> u32 {
-        let kind = node.kind();
-        let counts = has(self.spec.flow, kind)
-            || has(self.spec.elifs, kind)
-            || (has(self.spec.cases, kind) && !self.is_default_arm(node));
+        let counts = self.kinds.has(node, FLOW | ELIF)
+            || (self.kinds.has(node, CASE) && !self.is_default_arm(node));
         u32::from(counts) + u32::from(self.boolean_operator(node).is_some())
     }
 
@@ -145,31 +157,25 @@ impl Scorer<'_> {
         }
     }
 
-    fn boolean_operator(&self, node: Node) -> Option<&'static str> {
-        if !has(self.spec.bool_nodes, node.kind()) {
+    /// The kind id of the boolean operator this node applies, if it applies one.
+    fn boolean_operator(&self, node: Node) -> Option<u16> {
+        if !self.kinds.has(node, BOOL_NODE) {
             return None;
         }
-        let op = node
-            .child_by_field_name("operator")
-            .map_or("", |n| n.kind());
-        self.spec
-            .bool_ops
-            .iter()
-            .copied()
-            .find(|candidate| *candidate == op)
+        let op = node.child_by_field_name("operator")?.kind_id();
+        self.kinds.has_id(op, BOOL_OP).then_some(op)
     }
 
     /// Adds the cognitive cost of this node and returns the nesting level its children are at.
     fn cognitive(&mut self, node: Node, nesting: u32) -> u32 {
-        let kind = node.kind();
-        if self.is_else(node) || has(self.spec.elifs, kind) {
+        if self.is_else(node) || self.kinds.has(node, ELIF) {
             self.cognitive += 1;
             return nesting;
         }
-        if has(self.spec.flow, kind) || has(self.spec.switches, kind) {
+        if self.kinds.has(node, FLOW | SWITCH) {
             return self.structure(node, nesting);
         }
-        if has(self.spec.closures, kind) {
+        if self.kinds.has(node, CLOSURE) {
             return nesting + 1;
         }
         self.cognitive += self.flat_cost(node);
@@ -178,10 +184,7 @@ impl Scorer<'_> {
 
     /// An `else` keyword; the one of a Python ternary is part of the ternary, which is already paid.
     fn is_else(&self, node: Node) -> bool {
-        node.kind() == "else"
-            && node
-                .parent()
-                .is_some_and(|p| !has(self.spec.ternaries, p.kind()))
+        self.kinds.has(node, ELSE) && node.parent().is_some_and(|p| !self.kinds.has(p, TERNARY))
     }
 
     /// A structure that nests: an `else if` already paid through its `else`, anything else pays its depth.
@@ -194,16 +197,17 @@ impl Scorer<'_> {
     }
 
     fn follows_else(&self, node: Node) -> bool {
-        has(self.spec.ifs, node.kind())
-            && (node.prev_sibling().is_some_and(|s| s.kind() == "else")
-                || node.parent().is_some_and(|p| p.kind() == "else_clause"))
+        self.kinds.has(node, IF)
+            && (node.prev_sibling().is_some_and(|s| self.kinds.has(s, ELSE))
+                || node
+                    .parent()
+                    .is_some_and(|p| self.kinds.has(p, ELSE_CLAUSE)))
     }
 
     /// Costs that do not nest: jumps, recursion and the first operator of each boolean run.
     fn flat_cost(&self, node: Node) -> u32 {
-        let kind = node.kind();
-        let jump = has(self.spec.jumps, kind)
-            || (has(self.spec.labeled_jumps, kind) && self.has_label(node));
+        let jump = self.kinds.has(node, JUMP)
+            || (self.kinds.has(node, LABELED_JUMP) && self.has_label(node));
         u32::from(jump)
             + u32::from(self.is_recursive_call(node))
             + u32::from(self.starts_bool_run(node))
@@ -213,7 +217,7 @@ impl Scorer<'_> {
         let mut cursor = node.walk();
         let found = node
             .named_children(&mut cursor)
-            .any(|c| has(self.spec.labels, c.kind()));
+            .any(|c| self.kinds.has(c, LABEL));
         found
     }
 
@@ -225,7 +229,7 @@ impl Scorer<'_> {
     }
 
     fn is_recursive_call(&self, node: Node) -> bool {
-        if self.name.is_empty() || !has(self.spec.calls, node.kind()) {
+        if self.name.is_empty() || !self.kinds.has(node, CALL) {
             return false;
         }
         let callee = node

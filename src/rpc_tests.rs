@@ -19,6 +19,9 @@ fn health_reports_name_and_protocol() {
 
 #[rstest]
 #[case::complexity("ast.complexity", json!({"lang": "go", "source": "package p\nfunc f() {}"}), "/result/0/cyclomatic", json!(1))]
+#[case::batch("ast.complexity_batch", json!({"files": [{"lang": "go", "source": "package p\nfunc f() {}"}, {"lang": "cobol", "source": ""}]}), "/result/results/0/functions/0/cyclomatic", json!(1))]
+#[case::batch_error("ast.complexity_batch", json!({"files": [{"lang": "go", "source": "package p\nfunc f() {}"}, {"lang": "cobol", "source": ""}]}), "/result/results/1/error", json!("unknown language `cobol`"))]
+#[case::batch_empty("ast.complexity_batch", json!({"files": []}), "/result/results", json!([]))]
 #[case::fold("ast.fold_signatures", json!({"lang": "go", "source": "package p\nfunc f() { x() }\n"}), "/result/folded/0", json!("f"))]
 #[case::fold_keep("ast.fold_signatures", json!({"lang": "go", "source": "package p\nfunc f() { x() }\n", "keep_symbols": ["f"]}), "/result/folded", json!([]))]
 #[case::last_node("ast.last_complete_node", json!({"lang": "go", "buffer": "package p\nfunc f() {}\nfunc g("}), "/result/offset", json!(21))]
@@ -47,6 +50,7 @@ fn answers(
 #[case::unknown_language_defs_uses("ast.defs_uses", json!({"lang": "cobol", "source": "", "ranges": []}), -32602, None)]
 #[case::missing_field_defs_uses("ast.defs_uses", json!({"lang": "go", "source": ""}), -32602, None)]
 #[case::missing_field("ast.complexity", json!({"lang": "go"}), -32602, None)]
+#[case::missing_files_batch("ast.complexity_batch", json!({}), -32602, None)]
 #[case::missing_field_fold("ast.fold_signatures", json!({"lang": "go"}), -32602, None)]
 #[case::missing_field_last("ast.last_complete_node", json!({"lang": "go"}), -32602, None)]
 #[case::missing_field_changed("ast.changed_symbols", json!({"lang": "go", "source": ""}), -32602, None)]

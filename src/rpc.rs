@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::batch::{complexity_batch, default_workers, BatchFile};
 use crate::complexity::complexity;
 use crate::defs_uses::defs_uses;
 use crate::error::CoreError;
@@ -19,13 +20,14 @@ use crate::symbols::{changed_symbols, Hunk};
 use crate::tokens;
 
 /// The protocol version; a client refuses a different major version.
-pub const PROTOCOL: &str = "1.0.0";
+pub const PROTOCOL: &str = "1.1.0";
 
 type Handler = fn(Value) -> Result<Value, CoreError>;
 
 const METHODS: &[(&str, Handler)] = &[
     ("health", health),
     ("ast.complexity", ast_complexity),
+    ("ast.complexity_batch", ast_complexity_batch),
     ("ast.fold_signatures", ast_fold),
     ("ast.last_complete_node", ast_last_node),
     ("ast.changed_symbols", ast_changed),
@@ -46,6 +48,11 @@ struct WithLang<P> {
 #[derive(Deserialize)]
 struct SourceParams {
     source: String,
+}
+
+#[derive(Deserialize)]
+struct BatchParams {
+    files: Vec<BatchFile>,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +123,14 @@ fn call_lang<P: DeserializeOwned, R: Serialize>(
 fn ast_complexity(params: Value) -> Result<Value, CoreError> {
     call_lang(params, |lang, p: SourceParams| {
         Ok(complexity(lang, &p.source))
+    })
+}
+
+/// `ast.complexity` over many files at once, on all cores; the answers come back in request order.
+fn ast_complexity_batch(params: Value) -> Result<Value, CoreError> {
+    call(params, |p: BatchParams| {
+        let workers = default_workers(p.files.len());
+        Ok(json!({"results": complexity_batch(&p.files, workers)}))
     })
 }
 
