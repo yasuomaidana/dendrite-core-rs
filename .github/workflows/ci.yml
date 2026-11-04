@@ -23,10 +23,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: '~/.cargo/bin/loom-gate'
-          key: 'loom-gate-${{ runner.os }}-${{ vars.LOOM_GATE_REF || ''d5a77a49f113c1294504a0a56297068919c67658'' }}'
+          key: 'loom-gate-${{ runner.os }}-${{ vars.LOOM_GATE_REF || ''b3dd79d0190b29fe9815b21b30ca22c402c6f2be'' }}'
       - name: Install loom-gate
         run: |
-          command -v loom-gate >/dev/null || cargo install --locked --git https://github.com/yasuomaidana/dendrite-rag-rs --rev "${{ vars.LOOM_GATE_REF || 'd5a77a49f113c1294504a0a56297068919c67658' }}" loom-gate
+          command -v loom-gate >/dev/null || cargo install --locked --git https://github.com/yasuomaidana/dendrite-rag-rs --rev "${{ vars.LOOM_GATE_REF || 'b3dd79d0190b29fe9815b21b30ca22c402c6f2be' }}" loom-gate
       - name: 'Gate: loc'
         run: |
           loom-gate loc --format github
