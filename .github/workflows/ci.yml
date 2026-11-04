@@ -1,6 +1,9 @@
 # managed by dendrite — edit .github/dendrite/directives.toml
 name: Dendrite CI/CD
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ develop, main ]
