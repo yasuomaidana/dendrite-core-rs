@@ -4,10 +4,12 @@
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::thread;
 
 use serde::{Deserialize, Serialize};
 
+use crate::cache::{key, Cache};
 use crate::complexity::{complexity, FunctionMetrics};
 use crate::lang::Lang;
 
@@ -27,11 +29,23 @@ pub struct FileResult {
     pub error: Option<String>,
 }
 
-/// Measures every file, using up to `workers` threads.
+/// Results the sidecar has already computed, shared by every request it serves. A file whose language and bytes
+/// were seen before is answered from here without parsing.
+pub static CACHE: LazyLock<Cache> = LazyLock::new(|| Cache::new(CACHE_ENTRIES));
+
+/// How many files' results the shared cache holds.
+const CACHE_ENTRIES: usize = 16_384;
+
+/// Measures every file, using up to `workers` threads and the shared cache.
 pub fn complexity_batch(files: &[BatchFile], workers: usize) -> Vec<FileResult> {
+    complexity_batch_in(&CACHE, files, workers)
+}
+
+/// [`complexity_batch`] against a cache of the caller's choosing.
+pub fn complexity_batch_in(cache: &Cache, files: &[BatchFile], workers: usize) -> Vec<FileResult> {
     par_map(files, workers, |file| match Lang::from_id(&file.lang) {
         Ok(lang) => FileResult {
-            functions: Some(complexity(lang, &file.source)),
+            functions: Some(cached(cache, file, lang).to_vec()),
             error: None,
         },
         Err(e) => FileResult {
@@ -39,6 +53,14 @@ pub fn complexity_batch(files: &[BatchFile], workers: usize) -> Vec<FileResult> 
             error: Some(e.to_string()),
         },
     })
+}
+
+/// The functions of `file`: from the cache when its language and bytes were seen before, else measured.
+fn cached(cache: &Cache, file: &BatchFile, lang: Lang) -> Arc<Vec<FunctionMetrics>> {
+    let k = key(&file.lang, &file.source);
+    cache
+        .get(&k)
+        .unwrap_or_else(|| cache.insert(k, complexity(lang, &file.source)))
 }
 
 /// The threads a batch of `items` files should use: one per core, never more than there are files.
@@ -116,6 +138,22 @@ mod tests {
             assert_eq!(functions[0].symbol, format!("f{n}"));
             assert_eq!(functions[0].cyclomatic, 1 + n as u32);
         }
+    }
+
+    #[test]
+    fn repeated_content_is_parsed_once() {
+        let cache = Cache::new(64);
+        let mut files = files();
+        files.extend(files_copy());
+        let first = complexity_batch_in(&cache, &files, 1);
+        assert_eq!(cache.stats().misses, 40, "the 40 distinct files");
+        let second = complexity_batch_in(&cache, &files, 4);
+        assert_eq!(first, second);
+        assert_eq!(cache.stats().misses, 40, "nothing is parsed twice");
+    }
+
+    fn files_copy() -> Vec<BatchFile> {
+        files()
     }
 
     #[test]

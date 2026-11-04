@@ -3,18 +3,9 @@
 use dendrite_core::ast::go::fast as go_fast;
 use dendrite_core::batch::{complexity_batch, BatchFile};
 use dendrite_core::{complexity::complexity_tree, Lang};
-use std::time::{Duration, Instant};
-
-fn best(runs: usize, mut f: impl FnMut()) -> Duration {
-    (0..runs)
-        .map(|_| {
-            let t = Instant::now();
-            f();
-            t.elapsed()
-        })
-        .min()
-        .unwrap()
-}
+#[path = "common/bench.rs"]
+mod bench;
+use bench::best;
 
 fn main() {
     let list = std::fs::read_to_string(std::env::args().nth(1).expect("a file list")).unwrap();

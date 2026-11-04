@@ -12,6 +12,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 - `ast.complexity` for Go no longer builds a syntax tree: a lexer and a structural scan (`ast::go`) give the same metrics 35 times faster (338 MB/s; 8.8 ms against 302 ms for 3 MB), which is 7 times faster than the Go analyzer it replaced. It falls back to tree-sitter for what it cannot decide from tokens, and is checked against it over the Go standard library and a module cache (`DENDRITE_GO_CORPUS`). Where tree-sitter-go misparses valid Go the answer now follows Go (DCORE-13).
 - `ast.complexity_batch`: many files in one request, measured on all cores, answered in request order; one bad file reports its own error and does not fail the batch. Protocol 1.1.0 (DCORE-13).
+- `ast.complexity_batch` keeps a bounded cache (16,384 files, first in first out) of results keyed by the BLAKE3 digest of the language and the source, so a file the sidecar has seen before is answered without parsing, for every language alike. An unchanged re-run of 400 Python files drops from 134 ms to 1.3 ms and of 300 TypeScript files from 660 ms to 1.2 ms (8 threads, `examples/lang_bench`). The cache lives as long as the sidecar process; it is never written to disk (DCORE-20).
 
 ### Changed
 - `ast.defs_uses`: a `name` field on a call node is the function being called, a use, not a declared name (Java's `method_invocation`).
