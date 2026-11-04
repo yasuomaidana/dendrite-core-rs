@@ -111,9 +111,10 @@ fn collect_defines(hunk: &Hunk, decls: &[DeclEntry]) -> Vec<String> {
 }
 
 fn collect_uses(hunk: &Hunk, uses: &[UseEntry], defines: &[String]) -> Vec<String> {
+    let defines: std::collections::HashSet<&str> = defines.iter().map(String::as_str).collect();
     let mut result: Vec<String> = uses
         .iter()
-        .filter(|u| in_range(u.line, hunk) && !defines.contains(&u.name.to_string()))
+        .filter(|u| in_range(u.line, hunk) && !defines.contains(u.name))
         .map(|u| u.name.to_string())
         .collect();
     result.sort();
