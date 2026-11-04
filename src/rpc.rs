@@ -37,14 +37,6 @@ const METHODS: &[(&str, Handler)] = &[
     ("tokens.count", tokens_count),
 ];
 
-/// Every `ast.*` method names the language; the rest of its params are `P`.
-#[derive(Deserialize)]
-struct WithLang<P> {
-    lang: String,
-    #[serde(flatten)]
-    rest: P,
-}
-
 #[derive(Deserialize)]
 struct SourceParams {
     source: String,
@@ -112,12 +104,17 @@ fn health(_: Value) -> Result<Value, CoreError> {
     Ok(json!({"name": "dendrite-core", "version": env!("CARGO_PKG_VERSION"), "protocol": PROTOCOL}))
 }
 
-/// Like [`call`], for a method that works on one language.
+/// Like [`call`], for a method that works on one language, named by the `lang` param. The language is read
+/// first and the rest decoded from the same value; flattening it into the params would copy the source.
 fn call_lang<P: DeserializeOwned, R: Serialize>(
     params: Value,
     f: impl FnOnce(Lang, P) -> Result<R, CoreError>,
 ) -> Result<Value, CoreError> {
-    call(params, |p: WithLang<P>| f(Lang::from_id(&p.lang)?, p.rest))
+    let lang = match params.get("lang") {
+        Some(Value::String(id)) => Lang::from_id(id)?,
+        _ => return Err(CoreError::InvalidParams("missing field `lang`".into())),
+    };
+    call(params, |p: P| f(lang, p))
 }
 
 fn ast_complexity(params: Value) -> Result<Value, CoreError> {
@@ -206,7 +203,7 @@ fn failure(id: Value, code: i64, message: &str, kind: &str) -> String {
 
 /// Answers one request line. A notification (no `id`) gets no answer.
 pub fn handle_line(line: &str) -> Option<String> {
-    let request: Value = match serde_json::from_str(line) {
+    let mut request: Value = match serde_json::from_str(line) {
         Ok(request) => request,
         Err(e) => return Some(failure(Value::Null, -32700, &e.to_string(), "")),
     };
@@ -214,8 +211,10 @@ pub fn handle_line(line: &str) -> Option<String> {
     let Some(method) = request.get("method").and_then(Value::as_str) else {
         return Some(failure(id, -32600, "invalid request: no method", ""));
     };
-    let params = request.get("params").cloned().unwrap_or(Value::Null);
-    Some(match dispatch(method, params) {
+    let method = method.to_string();
+    // The params can hold megabytes of source: move them out of the request instead of copying them.
+    let params = request.get_mut("params").map_or(Value::Null, Value::take);
+    Some(match dispatch(&method, params) {
         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string(),
         Err(e) => failure(id, e.code(), &e.to_string(), e.kind()),
     })

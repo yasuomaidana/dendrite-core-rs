@@ -8,10 +8,11 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - `ast.defs_uses`: for line ranges, the symbols defined and the identifiers used; dendrite-git-rs builds its hunk dependency graph from it (DCORE-10).
 - CI: `.github/workflows/complexity.yml` cross-checks function complexity with clippy `cognitive_complexity` (blocking) and `lizard` (report only until compared with the crate's own measure) (DCORE-14).
 
+- `ast.complexity` for Go no longer builds a syntax tree: a lexer and a structural scan (`ast::go`) give the same metrics 35 times faster (338 MB/s; 8.8 ms against 302 ms for 3 MB), which is 7 times faster than the Go analyzer it replaced. It falls back to tree-sitter for what it cannot decide from tokens, and is checked against it over the Go standard library and a module cache (`DENDRITE_GO_CORPUS`). Where tree-sitter-go misparses valid Go the answer now follows Go (DCORE-13).
 - `ast.complexity_batch`: many files in one request, measured on all cores, answered in request order; one bad file reports its own error and does not fail the batch. Protocol 1.1.0 (DCORE-13).
 
 ### Changed
-- `ast.complexity` classifies nodes by numeric kind id (`ast::kinds::KindTable`, built once per language) and walks each tree with one cursor, instead of comparing kind names as strings per node. Same output on a 503-file Go corpus; 0.40 s to 0.31 s (DCORE-13).
+- `ast.complexity` classifies nodes by numeric kind id (`ast::kinds::KindTable`, built once per language) and walks each tree with one cursor, instead of comparing kind names as strings per node. Same output on a 503-file Go corpus (DCORE-13).
 - The syntax-analysis modules moved to `src/ast/` so the source directory stays within the structure limit; every public path is re-exported unchanged (DCORE-10).
 
 ## [0.1.0]

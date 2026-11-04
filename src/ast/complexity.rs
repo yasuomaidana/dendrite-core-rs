@@ -36,6 +36,17 @@ pub struct FunctionMetrics {
 /// Measures every function of `source`, in source order. Nested declarations get their own entry and do not
 /// count toward the function around them.
 pub fn complexity(lang: Lang, source: &str) -> Vec<FunctionMetrics> {
+    if lang == Lang::Go {
+        if let Some(found) = crate::ast::go::fast::complexity(source) {
+            return found;
+        }
+    }
+    complexity_tree(lang, source)
+}
+
+/// [`complexity`] through the syntax tree, for every language: the parser path, and the oracle the Go fast path
+/// is checked against.
+pub fn complexity_tree(lang: Lang, source: &str) -> Vec<FunctionMetrics> {
     let tree = parse(lang, source);
     let kinds = table(lang);
     let mut out = Vec::new();

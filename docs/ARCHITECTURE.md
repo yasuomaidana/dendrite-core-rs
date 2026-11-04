@@ -108,7 +108,22 @@ Each function of a file is measured once; a nested declaration (Rust `fn` in `fn
 
 ## 4. Performance and parity targets
 
-- At least 3× faster than the in-process Go providers on the same inputs. **Measured (DCORE-13, 503 Go files, 3.0 MB, 8-core Apple silicon, release build):** the Go analyzer took 0.10 s in one process. `ast.complexity` one file per request took 0.40 s at first (4× slower); classifying nodes by kind id and walking each tree with one cursor brought it to 0.31 s, and the profile then shows tree-sitter parsing as about two thirds of what is left. `ast.complexity_batch` (all files in one request, parsed on all cores) takes 0.07 s: 1.4× faster than the single-threaded Go analyzer, with identical results. The 3× target is not met on this corpus: it would need 0.033 s, below what parsing 3 MB costs on this machine. For one file per request there is no concurrency to use, so callers that measure many files should send a batch.
+- At least 3× faster than the in-process Go providers on the same inputs. **Met for Go complexity (DCORE-13).** Measured on 499 non-test Go files of Dendrite (3.0 MB), Apple silicon with 8 cores, release build, sources already in memory, best of several runs:
+
+  | | time |
+  |---|---|
+  | Go `go/parser` alone, 1 thread | 54 ms |
+  | Go analyzer (`AnalyzeFuncComplexity`), 1 thread | 61 ms |
+  | Go analyzer, 8 goroutines | 22 ms |
+  | `dendrite-core` through tree-sitter, 1 thread (what `ast.complexity` was) | 302 ms |
+  | `dendrite-core` Go fast scan, 1 thread | 8.8 ms (338 MB/s) |
+  | the same, `ast.complexity_batch` on 8 threads | 2.0 ms |
+
+  So the sidecar's analysis is 7 times faster than the Go analyzer on one thread and 11 times on all cores. Through the sidecar process, with JSON in and out and a cold process start, 503 single requests take about 19 ms and one batch request about 13 ms, against 61 ms and 22 ms in-process in Go. What is left of those 13 ms is the transport (start, reading, unescaping and writing megabytes of JSON), not the analysis.
+
+  **Why tree-sitter could not get there.** The first measurements had `ast.complexity` 5 times *slower* than Go. Walking the tree cost half of it (kind names compared as strings per node, a cursor per node; fixed by kind ids, `ast::kinds`), but the other half is the parse: tree-sitter is a general GLR parser that builds a full syntax tree with error recovery for any grammar, and `go/parser` is a recursive-descent parser for one language that builds a small tree. That is a per-byte cost of the algorithm, not of the language it is written in, and no tuning of the walk closes it. The Go path therefore does not build a tree: `ast::go` lexes the source and tracks only what the metrics read (branching keywords, braces, `&&`/`||` runs, `else` chains, closures, recursion).
+
+  **How it stays exact.** The scan returns `None` for what it cannot decide from tokens (a generic call of the function itself, a `struct{}` literal in an unusual place, an unterminated literal) and `ast.complexity` then uses the parser. Its answers are checked against the parser's over real code: `DENDRITE_GO_CORPUS=<dir> cargo test --release -- --ignored` compares every valid file under `<dir>`. On the Go standard library (7,342 files) and this repository (937 files) the answers are identical; on the 34,632 files of a Go module cache they are identical except two files in which tree-sitter-go misparses valid Go (`if !a.b { ... }` followed by a bare block is read as a composite literal), where the scan follows Go's own grammar. Less than 0.2% of files fall back to the parser. Other languages are unchanged and still go through tree-sitter.
 - Folding and complexity results identical to the Go provider for Go sources (golden tests).
 - BLAKE3 digests byte-identical across implementations.
 
