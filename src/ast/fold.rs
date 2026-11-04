@@ -4,6 +4,7 @@ use serde::Serialize;
 use tree_sitter::Node;
 
 use crate::complexity::symbol_name;
+use crate::embedded::regions;
 use crate::kinds::{table, KindTable};
 use crate::lang::Lang;
 use crate::parse::{parse, text};
@@ -29,6 +30,9 @@ struct Edit {
 /// Replaces the body of every function whose symbol is not in `keep` with a placeholder (`...` in Python).
 /// Types, fields, contracts, doc comments, imports and constants stay; kept symbols keep their bodies.
 pub fn fold_signatures(lang: Lang, source: &str, keep: &[String]) -> Folded {
+    if !lang.spec().embedded.is_empty() {
+        return fold_embedded(lang, source, keep);
+    }
     let tree = parse(lang, source);
     let mut edits = Vec::new();
     let mut folded = Vec::new();
@@ -46,6 +50,38 @@ pub fn fold_signatures(lang: Lang, source: &str, keep: &[String]) -> Folded {
         source: out,
         folded,
     }
+}
+
+/// Folds the regions of other languages inside the file and leaves the rest as it is.
+fn fold_embedded(lang: Lang, source: &str, keep: &[String]) -> Folded {
+    let mut out = String::new();
+    let mut folded = Vec::new();
+    let mut last = 0;
+    for region in regions(lang, source) {
+        out.push_str(&source[last..region.start]);
+        let part = fold_signatures(region.lang, &source[region.start..region.end], keep);
+        out.push_str(&part.source);
+        folded.extend(part.folded);
+        last = region.end;
+    }
+    out.push_str(&source[last..]);
+    Folded {
+        tokens_before: estimate(source),
+        tokens_after: estimate(&out),
+        source: out,
+        folded,
+    }
+}
+
+/// A function's body: its `body` field, or the child of a kind the language names for it.
+fn body_of<'t>(func: Node<'t>, kinds: &[&str]) -> Option<Node<'t>> {
+    func.child_by_field_name("body").or_else(|| {
+        let mut cursor = func.walk();
+        let found = func
+            .children(&mut cursor)
+            .find(|n| kinds.contains(&n.kind()));
+        found
+    })
 }
 
 struct Ctx<'a> {
@@ -70,7 +106,7 @@ impl Ctx<'_> {
     /// A function is folded or kept whole; nothing inside it is visited either way.
     fn fold(&self, func: Node, edits: &mut Vec<Edit>, folded: &mut Vec<String>) {
         let symbol = symbol_name(func, self.source.as_bytes(), self.kinds);
-        let Some(body) = func.child_by_field_name("body") else {
+        let Some(body) = body_of(func, self.lang.spec().body_kinds) else {
             return;
         };
         if self.keep.contains(&symbol) {

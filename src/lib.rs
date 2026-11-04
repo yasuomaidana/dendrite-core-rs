@@ -11,7 +11,7 @@ pub mod rpc;
 pub mod tokens;
 
 pub use ast::defs_uses::{defs_uses, RangeSymbols};
-pub use ast::{complexity, defs_uses, fold, kinds, lang, last_node, parse, symbols};
+pub use ast::{complexity, defs_uses, embedded, fold, kinds, lang, last_node, parse, symbols};
 pub use error::CoreError;
 pub use lang::Lang;
 

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use tree_sitter::Node;
 
 use crate::complexity::symbol_name;
+use crate::embedded::regions;
 use crate::kinds::{table, KindTable, TYPE};
 use crate::lang::Lang;
 use crate::parse::{parse, text};
@@ -35,9 +36,8 @@ struct Decl {
 /// For each hunk, the innermost declaration of each of its lines, one entry per run of lines. A run outside
 /// every declaration is one `file` entry that spans just those lines.
 pub fn changed_symbols(lang: Lang, source: &str, hunks: &[Hunk]) -> Vec<ChangedSymbol> {
-    let tree = parse(lang, source);
     let mut decls = Vec::new();
-    declarations(tree.root_node(), table(lang), source.as_bytes(), &mut decls);
+    collect_declarations(lang, source, &mut decls);
     let mut out: Vec<ChangedSymbol> = Vec::new();
     for (index, hunk) in hunks.iter().enumerate() {
         let before = out.len();
@@ -85,6 +85,24 @@ fn entry_for(index: usize, line: usize, decls: &[Decl]) -> ChangedSymbol {
             start_line: line,
             end_line: line,
         },
+    }
+}
+
+/// The declarations of the file, those of its embedded regions numbered by the lines of the file.
+fn collect_declarations(lang: Lang, source: &str, out: &mut Vec<Decl>) {
+    if lang.spec().embedded.is_empty() {
+        let tree = parse(lang, source);
+        declarations(tree.root_node(), table(lang), source.as_bytes(), out);
+        return;
+    }
+    for region in regions(lang, source) {
+        let mut inner = Vec::new();
+        collect_declarations(region.lang, &source[region.start..region.end], &mut inner);
+        out.extend(inner.into_iter().map(|mut d| {
+            d.start_line += region.row;
+            d.end_line += region.row;
+            d
+        }));
     }
 }
 
@@ -198,5 +216,27 @@ mod tests {
         let got = changed_symbols(Lang::Go, GO, &hunks);
         assert_eq!(got.iter().map(|c| c.hunk).collect::<Vec<_>>(), [0, 1]);
         assert!(changed_symbols(Lang::Go, GO, &[]).is_empty());
+    }
+
+    #[rstest]
+    #[case::java_method(Lang::Java, "class A {\n    void m() {\n        g();\n    }\n}\n", 3, ("m", "method_declaration", 2))]
+    #[case::java_class(Lang::Java, "class A {\n    int x;\n}\n", 2, ("A", "class_declaration", 1))]
+    #[case::kotlin_function(Lang::Kotlin, "fun f() {\n    g()\n}\n", 2, ("f", "function_declaration", 1))]
+    #[case::svelte_script_function(Lang::Svelte, "<script>\n  function f() {\n    g()\n  }\n</script>\n<p>hi</p>\n", 3, ("f", "function_declaration", 2))]
+    fn the_new_languages_map_lines_to_their_declarations(
+        #[case] lang: Lang,
+        #[case] source: &str,
+        #[case] line: usize,
+        #[case] want: (&str, &str, usize),
+    ) {
+        let got = at(source, lang, line, line);
+        assert_eq!(got, vec![(want.0.to_string(), want.1.to_string(), want.2)]);
+    }
+
+    #[test]
+    fn svelte_markup_is_file_scope() {
+        let source = "<script>\n  function f() {}\n</script>\n<p>hi</p>\n";
+        let got = at(source, Lang::Svelte, 4, 4);
+        assert_eq!(got, vec![(String::new(), "file".to_string(), 4)]);
     }
 }

@@ -4,6 +4,7 @@
 
 use tree_sitter::Language;
 
+use crate::ast::specs;
 use crate::error::CoreError;
 
 /// A language with a compiled-in grammar.
@@ -17,6 +18,9 @@ pub enum Lang {
     JavaScript,
     C,
     Cpp,
+    Java,
+    Kotlin,
+    Svelte,
 }
 
 const IDS: &[(&str, Lang)] = &[
@@ -34,12 +38,31 @@ const IDS: &[(&str, Lang)] = &[
     ("c", Lang::C),
     ("cpp", Lang::Cpp),
     ("c++", Lang::Cpp),
+    ("java", Lang::Java),
+    ("kotlin", Lang::Kotlin),
+    ("kt", Lang::Kotlin),
+    ("svelte", Lang::Svelte),
+];
+
+/// The compiled-in grammar of each language, in the order of the [`Lang`] variants.
+const GRAMMARS: [fn() -> Language; 11] = [
+    || tree_sitter_go::LANGUAGE.into(),
+    || tree_sitter_rust::LANGUAGE.into(),
+    || tree_sitter_python::LANGUAGE.into(),
+    || tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+    || tree_sitter_typescript::LANGUAGE_TSX.into(),
+    || tree_sitter_javascript::LANGUAGE.into(),
+    || tree_sitter_c::LANGUAGE.into(),
+    || tree_sitter_cpp::LANGUAGE.into(),
+    || tree_sitter_java::LANGUAGE.into(),
+    || tree_sitter_kotlin_ng::LANGUAGE.into(),
+    || tree_sitter_svelte_ng::LANGUAGE.into(),
 ];
 
 impl Lang {
     /// Every language, in discriminant order.
     #[cfg(test)]
-    pub(crate) const ALL: [Lang; 8] = [
+    pub(crate) const ALL: [Lang; 11] = [
         Lang::Go,
         Lang::Rust,
         Lang::Python,
@@ -48,6 +71,9 @@ impl Lang {
         Lang::JavaScript,
         Lang::C,
         Lang::Cpp,
+        Lang::Java,
+        Lang::Kotlin,
+        Lang::Svelte,
     ];
 
     /// The language's position in [`Lang::ALL`], for tables that hold one entry per language.
@@ -65,27 +91,21 @@ impl Lang {
     }
 
     pub(crate) fn grammar(self) -> Language {
-        match self {
-            Lang::Go => tree_sitter_go::LANGUAGE.into(),
-            Lang::Rust => tree_sitter_rust::LANGUAGE.into(),
-            Lang::Python => tree_sitter_python::LANGUAGE.into(),
-            Lang::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            Lang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
-            Lang::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
-            Lang::C => tree_sitter_c::LANGUAGE.into(),
-            Lang::Cpp => tree_sitter_cpp::LANGUAGE.into(),
-        }
+        GRAMMARS[self.index()]()
     }
 
     /// The node tables of this language.
     pub fn spec(self) -> &'static Spec {
         match self {
-            Lang::Go => &GO,
-            Lang::Rust => &RUST,
-            Lang::Python => &PYTHON,
-            Lang::TypeScript | Lang::Tsx | Lang::JavaScript => &ECMASCRIPT,
-            Lang::C => &C,
-            Lang::Cpp => &CPP,
+            Lang::Go => &specs::GO,
+            Lang::Rust => &specs::RUST,
+            Lang::Python => &specs::PYTHON,
+            Lang::TypeScript | Lang::Tsx | Lang::JavaScript => &specs::ECMASCRIPT,
+            Lang::C => &specs::C,
+            Lang::Cpp => &specs::CPP,
+            Lang::Java => &specs::JAVA,
+            Lang::Kotlin => &specs::KOTLIN,
+            Lang::Svelte => &specs::SVELTE,
         }
     }
 }
@@ -112,12 +132,15 @@ pub struct Spec {
     pub cases: Kinds,
     /// Kinds of the `if` branch, to tell an `else if` from an `if`.
     pub ifs: Kinds,
-    /// Ternaries that spell `else`, so their keyword is not an `else` branch.
-    pub ternaries: Kinds,
+    /// Parents whose `else` keyword is not an else branch: a Python ternary, a Kotlin `when` entry (`else ->`).
+    pub else_exempt: Kinds,
     /// Nodes that hold a boolean operator.
     pub bool_nodes: Kinds,
     /// The operator tokens that are boolean.
     pub bool_ops: Kinds,
+    /// Operators of those nodes that add a path (cyclomatic) but are not boolean operators, so no run in the
+    /// cognitive score: Kotlin's elvis `?:`.
+    pub path_ops: Kinds,
     /// Jumps that always break the flow.
     pub jumps: Kinds,
     /// Jumps that break the flow only when they name a label.
@@ -126,251 +149,64 @@ pub struct Spec {
     pub labels: Kinds,
     /// Call expressions, to find recursion.
     pub calls: Kinds,
+    /// Where a call names the function it calls.
+    pub callee: Callee,
+    /// Case arms that are the default one (`default:`, `_ =>`, `else ->`) and add no path of their own.
+    pub default_arms: &'static [(&'static str, DefaultArm)],
+    /// Kinds of a function's body when the grammar gives it no `body` field (Kotlin's `function_body`).
+    pub body_kinds: Kinds,
+    /// Regions of other languages inside a file of this one (a Svelte component's `<script>`).
+    pub embedded: &'static [Embed],
     /// Declarations whose name node defines a symbol.
     pub definitions: Kinds,
     /// Reference identifier node kinds.
     pub identifiers: Kinds,
 }
 
-const BOOL: Kinds = &["&&", "||"];
+/// Where a call expression names the function it calls.
+#[derive(Debug, Clone, Copy)]
+pub enum Callee {
+    /// In this field of the call node.
+    Field(&'static str),
+    /// In its first named child (Kotlin's call expressions have no fields).
+    FirstChild,
+}
 
-static GO: Spec = Spec {
-    functions: &["function_declaration", "method_declaration"],
-    types: &["type_spec"],
-    closures: &["func_literal"],
-    binders: &[],
-    flow: &["if_statement", "for_statement"],
-    elifs: &[],
-    switches: &[
-        "expression_switch_statement",
-        "type_switch_statement",
-        "select_statement",
-    ],
-    cases: &["expression_case", "type_case", "communication_case"],
-    ifs: &["if_statement"],
-    ternaries: &[],
-    bool_nodes: &["binary_expression"],
-    bool_ops: BOOL,
-    jumps: &["goto_statement"],
-    labeled_jumps: &["break_statement", "continue_statement"],
-    labels: &["label_name"],
-    calls: &["call_expression"],
-    definitions: &[
-        "function_declaration",
-        "method_declaration",
-        "type_spec",
-        "const_spec",
-        "var_spec",
-    ],
-    identifiers: &["identifier", "type_identifier", "field_identifier"],
-};
+impl Callee {
+    /// The node that names the callee of `call`.
+    pub(crate) fn of<'t>(self, call: tree_sitter::Node<'t>) -> Option<tree_sitter::Node<'t>> {
+        match self {
+            Callee::Field(name) => call.child_by_field_name(name),
+            Callee::FirstChild => call.named_child(0),
+        }
+    }
+}
 
-static RUST: Spec = Spec {
-    functions: &["function_item"],
-    types: &[
-        "struct_item",
-        "enum_item",
-        "trait_item",
-        "impl_item",
-        "mod_item",
-    ],
-    closures: &["closure_expression"],
-    binders: &[],
-    flow: &[
-        "if_expression",
-        "for_expression",
-        "while_expression",
-        "loop_expression",
-    ],
-    elifs: &[],
-    switches: &["match_expression"],
-    cases: &["match_arm", "try_expression"],
-    ifs: &["if_expression"],
-    ternaries: &[],
-    bool_nodes: &["binary_expression"],
-    bool_ops: BOOL,
-    jumps: &[],
-    labeled_jumps: &["break_expression", "continue_expression"],
-    labels: &["label"],
-    calls: &["call_expression"],
-    definitions: &[
-        "function_item",
-        "struct_item",
-        "enum_item",
-        "union_item",
-        "trait_item",
-        "type_item",
-        "const_item",
-        "static_item",
-        "mod_item",
-        "macro_definition",
-    ],
-    identifiers: &[
-        "identifier",
-        "type_identifier",
-        "field_identifier",
-        "shorthand_field_identifier",
-    ],
-};
+/// How to tell the default arm of a `switch`/`match`/`when` from the arms that branch.
+#[derive(Debug, Clone, Copy)]
+pub enum DefaultArm {
+    /// The arm has no child in this field (C's `default:` has no `value`; Kotlin's `else ->` no `condition`).
+    NoField(&'static str),
+    /// The arm has no named child at all (Java's `default` label).
+    NoNamedChild,
+    /// The arm's first named child is the wildcard `_` (Rust and Python patterns).
+    WildcardPattern,
+}
 
-static PYTHON: Spec = Spec {
-    functions: &["function_definition"],
-    types: &["class_definition"],
-    closures: &["lambda"],
-    binders: &[],
-    flow: &[
-        "if_statement",
-        "for_statement",
-        "while_statement",
-        "except_clause",
-        "conditional_expression",
-    ],
-    elifs: &["elif_clause"],
-    switches: &["match_statement"],
-    cases: &["case_clause", "for_in_clause", "if_clause"],
-    ifs: &["if_statement"],
-    ternaries: &["conditional_expression"],
-    bool_nodes: &["boolean_operator"],
-    bool_ops: &["and", "or"],
-    jumps: &[],
-    labeled_jumps: &[],
-    labels: &[],
-    calls: &["call"],
-    definitions: &["function_definition", "class_definition"],
-    identifiers: &["identifier"],
-};
-
-static ECMASCRIPT: Spec = Spec {
-    functions: &[
-        "function_declaration",
-        "generator_function_declaration",
-        "method_definition",
-    ],
-    types: &[
-        "class_declaration",
-        "interface_declaration",
-        "type_alias_declaration",
-        "enum_declaration",
-    ],
-    closures: &["arrow_function", "function_expression", "function"],
-    binders: &["variable_declarator"],
-    flow: &[
-        "if_statement",
-        "for_statement",
-        "for_in_statement",
-        "while_statement",
-        "do_statement",
-        "catch_clause",
-        "ternary_expression",
-    ],
-    elifs: &[],
-    switches: &["switch_statement"],
-    cases: &["switch_case"],
-    ifs: &["if_statement"],
-    ternaries: &[],
-    bool_nodes: &["binary_expression"],
-    bool_ops: BOOL,
-    jumps: &[],
-    labeled_jumps: &["break_statement", "continue_statement"],
-    labels: &["statement_identifier"],
-    calls: &["call_expression"],
-    definitions: &[
-        "function_declaration",
-        "generator_function_declaration",
-        "class_declaration",
-        "method_definition",
-        "interface_declaration",
-        "type_alias_declaration",
-        "enum_declaration",
-    ],
-    identifiers: &[
-        "identifier",
-        "type_identifier",
-        "property_identifier",
-        "shorthand_property_identifier",
-    ],
-};
-
-static C: Spec = Spec {
-    functions: &["function_definition"],
-    types: &["struct_specifier"],
-    closures: &[],
-    binders: &[],
-    flow: &[
-        "if_statement",
-        "for_statement",
-        "while_statement",
-        "do_statement",
-        "conditional_expression",
-    ],
-    elifs: &[],
-    switches: &["switch_statement"],
-    cases: &["case_statement"],
-    ifs: &["if_statement"],
-    ternaries: &[],
-    bool_nodes: &["binary_expression"],
-    bool_ops: BOOL,
-    jumps: &["goto_statement"],
-    labeled_jumps: &[],
-    labels: &[],
-    calls: &["call_expression"],
-    definitions: &[
-        "function_definition",
-        "struct_specifier",
-        "union_specifier",
-        "enum_specifier",
-        "type_definition",
-    ],
-    identifiers: &["identifier", "type_identifier", "field_identifier"],
-};
-
-static CPP: Spec = Spec {
-    functions: &["function_definition"],
-    types: &[
-        "class_specifier",
-        "struct_specifier",
-        "namespace_definition",
-    ],
-    closures: &["lambda_expression"],
-    binders: &[],
-    flow: &[
-        "if_statement",
-        "for_statement",
-        "for_range_loop",
-        "while_statement",
-        "do_statement",
-        "catch_clause",
-        "conditional_expression",
-    ],
-    elifs: &[],
-    switches: &["switch_statement"],
-    cases: &["case_statement"],
-    ifs: &["if_statement"],
-    ternaries: &[],
-    bool_nodes: &["binary_expression"],
-    bool_ops: BOOL,
-    jumps: &["goto_statement"],
-    labeled_jumps: &[],
-    labels: &[],
-    calls: &["call_expression"],
-    definitions: &[
-        "function_definition",
-        "class_specifier",
-        "struct_specifier",
-        "union_specifier",
-        "enum_specifier",
-        "type_definition",
-        "alias_declaration",
-        "namespace_definition",
-        "concept_definition",
-    ],
-    identifiers: &[
-        "identifier",
-        "type_identifier",
-        "field_identifier",
-        "namespace_identifier",
-    ],
-};
+/// Code of another language inside a file: the nodes that hold it, and how to know which language it is.
+pub struct Embed {
+    /// The node that holds the region together with its tag (`script_element`).
+    pub container: &'static str,
+    /// The child of the container with the region's text (`raw_text`).
+    pub content: &'static str,
+    /// The attribute that names the language (`lang`), with its node kinds.
+    pub attribute: &'static str,
+    /// Node kinds of an attribute, its name and its value (`attribute`, `attribute_name`, `attribute_value`).
+    pub attribute_kinds: [&'static str; 3],
+    /// The attribute values that name a language; any other value, or none, means `fallback`.
+    pub langs: &'static [(&'static str, Lang)],
+    pub fallback: Lang,
+}
 
 #[cfg(test)]
 mod tests {
@@ -386,6 +222,10 @@ mod tests {
     #[case("js", Lang::JavaScript)]
     #[case("c", Lang::C)]
     #[case("c++", Lang::Cpp)]
+    #[case("java", Lang::Java)]
+    #[case("Kotlin", Lang::Kotlin)]
+    #[case("kt", Lang::Kotlin)]
+    #[case("svelte", Lang::Svelte)]
     fn finds_ids(#[case] id: &str, #[case] want: Lang) {
         assert_eq!(Lang::from_id(id), Ok(want));
     }
@@ -407,11 +247,58 @@ mod tests {
     #[case(Lang::JavaScript)]
     #[case(Lang::C)]
     #[case(Lang::Cpp)]
+    #[case(Lang::Java)]
+    #[case(Lang::Kotlin)]
     fn every_language_has_functions_and_a_grammar(#[case] lang: Lang) {
         assert!(!lang.spec().functions.is_empty());
         assert!(!lang.spec().definitions.is_empty());
         assert!(!lang.spec().identifiers.is_empty());
         let mut parser = tree_sitter::Parser::new();
         assert!(parser.set_language(&lang.grammar()).is_ok());
+    }
+
+    #[test]
+    fn svelte_has_no_functions_of_its_own_but_embeds_scripts() {
+        let spec = Lang::Svelte.spec();
+        assert!(spec.functions.is_empty());
+        assert_eq!(spec.embedded.len(), 1);
+        let mut parser = tree_sitter::Parser::new();
+        assert!(parser.set_language(&Lang::Svelte.grammar()).is_ok());
+    }
+
+    #[rstest]
+    #[case::field(Callee::Field("function"), "f(x)", Some("f"))]
+    #[case::first_child(Callee::FirstChild, "f(x)", Some("f"))]
+    #[case::missing_field(Callee::Field("nope"), "f(x)", None)]
+    fn callee_names_the_function_called(
+        #[case] callee: Callee,
+        #[case] source: &str,
+        #[case] want: Option<&str>,
+    ) {
+        let tree = crate::parse::parse(Lang::JavaScript, source);
+        let mut node = tree.root_node();
+        while node.kind() != "call_expression" {
+            node = node.child(0).expect("a call");
+        }
+        let got = callee.of(node).map(|n| source[n.byte_range()].to_string());
+        assert_eq!(got.as_deref(), want);
+    }
+
+    /// `GRAMMARS` is indexed by variant, so a wrong order would give a language another's grammar.
+    #[rstest]
+    #[case(Lang::Go, "package p\nfunc f() {}\n")]
+    #[case(Lang::Rust, "fn f() {}\n")]
+    #[case(Lang::Python, "def f():\n    pass\n")]
+    #[case(Lang::TypeScript, "function f(a: number): number { return a; }\n")]
+    #[case(Lang::Tsx, "const a = <div>{x}</div>;\n")]
+    #[case(Lang::JavaScript, "function f(a) { return a; }\n")]
+    #[case(Lang::C, "int f(void) { return 0; }\n")]
+    #[case(Lang::Cpp, "namespace n { int f() { return 0; } }\n")]
+    #[case(Lang::Java, "class A { void f() {} }\n")]
+    #[case(Lang::Kotlin, "fun f() {}\n")]
+    #[case(Lang::Svelte, "<p>{x}</p>\n")]
+    fn each_language_parses_its_own_source(#[case] lang: Lang, #[case] source: &str) {
+        let tree = crate::parse::parse(lang, source);
+        assert!(!tree.root_node().has_error(), "{lang:?}");
     }
 }

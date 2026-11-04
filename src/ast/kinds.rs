@@ -18,7 +18,7 @@ pub(crate) const ELIF: u32 = 1 << 5;
 pub(crate) const SWITCH: u32 = 1 << 6;
 pub(crate) const CASE: u32 = 1 << 7;
 pub(crate) const IF: u32 = 1 << 8;
-pub(crate) const TERNARY: u32 = 1 << 9;
+pub(crate) const ELSE_EXEMPT: u32 = 1 << 9;
 pub(crate) const BOOL_NODE: u32 = 1 << 10;
 pub(crate) const BOOL_OP: u32 = 1 << 11;
 pub(crate) const JUMP: u32 = 1 << 12;
@@ -29,6 +29,8 @@ pub(crate) const CALL: u32 = 1 << 15;
 /// [`Spec`](crate::lang::Spec).
 pub(crate) const ELSE: u32 = 1 << 16;
 pub(crate) const ELSE_CLAUSE: u32 = 1 << 17;
+/// An operator that adds a path without being a boolean operator (Kotlin's `?:`).
+pub(crate) const PATH_OP: u32 = 1 << 18;
 
 /// The parts a language's node kinds play, by kind id.
 pub struct KindTable {
@@ -39,7 +41,7 @@ impl KindTable {
     fn build(lang: Lang) -> KindTable {
         let grammar = lang.grammar();
         let spec = lang.spec();
-        let groups: [(u32, Kinds); 16] = [
+        let groups: [(u32, Kinds); 17] = [
             (FUNCTION, spec.functions),
             (TYPE, spec.types),
             (CLOSURE, spec.closures),
@@ -49,9 +51,10 @@ impl KindTable {
             (SWITCH, spec.switches),
             (CASE, spec.cases),
             (IF, spec.ifs),
-            (TERNARY, spec.ternaries),
+            (ELSE_EXEMPT, spec.else_exempt),
             (BOOL_NODE, spec.bool_nodes),
             (BOOL_OP, spec.bool_ops),
+            (PATH_OP, spec.path_ops),
             (JUMP, spec.jumps),
             (LABELED_JUMP, spec.labeled_jumps),
             (LABEL, spec.labels),
@@ -98,7 +101,7 @@ impl KindTable {
     }
 }
 
-static TABLES: [OnceLock<KindTable>; 8] = [const { OnceLock::new() }; 8];
+static TABLES: [OnceLock<KindTable>; 11] = [const { OnceLock::new() }; 11];
 
 /// The table of `lang`, built on first use.
 pub fn table(lang: Lang) -> &'static KindTable {

@@ -5,6 +5,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 ## [Unreleased]
 
 ### Added
+- Java, Kotlin and Svelte (`java`, `kotlin`/`kt`, `svelte`) for `ast.complexity`, `ast.fold_signatures`, `ast.changed_symbols` and `ast.defs_uses`, so Rust, TypeScript, Svelte, Python, Kotlin, Java, C and C++ are all covered. A Svelte component has no functions of its own: those of its `<script>` blocks are analysed as TypeScript (`lang="ts"`) or JavaScript, numbered by the lines of the file (DCORE-20).
+- The node tables (`ast::specs`) gained what these languages need, and no language is special-cased in code: where a call names its callee (`callee`), which arm is the default one (`default_arms`), where a function's body is when it is not a `body` field (`body_kinds`), operators that add a path without being boolean operators (`path_ops`, Kotlin's `?:`), and `embedded` regions.
 - `ast.defs_uses`: for line ranges, the symbols defined and the identifiers used; dendrite-git-rs builds its hunk dependency graph from it (DCORE-10).
 - CI: `.github/workflows/complexity.yml` cross-checks function complexity with clippy `cognitive_complexity` (blocking) and `lizard` (report only until compared with the crate's own measure) (DCORE-14).
 
@@ -12,6 +14,8 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 - `ast.complexity_batch`: many files in one request, measured on all cores, answered in request order; one bad file reports its own error and does not fail the batch. Protocol 1.1.0 (DCORE-13).
 
 ### Changed
+- `ast.defs_uses`: a `name` field on a call node is the function being called, a use, not a declared name (Java's `method_invocation`).
+- The node table field `ternaries` is now `else_exempt`: parents whose `else` keyword is not an else branch (a Python ternary, a Kotlin `when` entry).
 - `ast.complexity` classifies nodes by numeric kind id (`ast::kinds::KindTable`, built once per language) and walks each tree with one cursor, instead of comparing kind names as strings per node. Same output on a 503-file Go corpus (DCORE-13).
 - The syntax-analysis modules moved to `src/ast/` so the source directory stays within the structure limit; every public path is re-exported unchanged (DCORE-10).
 

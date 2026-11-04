@@ -178,6 +178,7 @@ fn a_node_without_children_scores_as_a_straight_line() {
     }
     let mut scorer = Scorer {
         kinds: table(Lang::Go),
+        spec: Lang::Go.spec(),
         source: b"package p",
         name: "",
         cyclomatic: 1,
@@ -185,4 +186,192 @@ fn a_node_without_children_scores_as_a_straight_line() {
     };
     scorer.score(leaf);
     assert_eq!((scorer.cyclomatic, scorer.cognitive), (1, 0));
+}
+
+#[test]
+fn java_constructors_are_functions_named_after_the_class() {
+    let m = first(Lang::Java, "class A { A() { if (true) { } } }");
+    assert_eq!((m.symbol.as_str(), m.cyclomatic, m.cognitive), ("A", 2, 1));
+}
+
+#[rstest]
+#[case::java_empty(Lang::Java, "class A { void f() {} }", 1, 0)]
+#[case::java_if_only(
+    Lang::Java,
+    "class A { int f(int a) { if (a > 0) { return 1; } return 0; } }",
+    2,
+    1
+)]
+#[case::java_if_else(
+    Lang::Java,
+    "class A { void f(boolean a) { if (a) { } else { } } }",
+    2,
+    2
+)]
+#[case::java_else_if_chain(
+    Lang::Java,
+    "class A { void f(boolean a, boolean b) { if (a) { } else if (b) { } else { } } }",
+    3,
+    3
+)]
+#[case::java_loops(Lang::Java, "class A { void f(java.util.List<String> l, int a) { for (int i = 0; i < 3; i++) { } for (String s : l) { } while (a > 0) { } do { } while (a > 0); } }", 5, 4)]
+#[case::java_nested(
+    Lang::Java,
+    "class A { void f(int a) { for (int i = 0; i < a; i++) { if (i > 1) { } } } }",
+    3,
+    3
+)]
+#[case::java_old_switch(
+    Lang::Java,
+    "class A { void f(int a) { switch (a) { case 1: break; case 2: default: break; } } }",
+    3,
+    1
+)]
+#[case::java_arrow_switch(
+    Lang::Java,
+    "class A { int f(int a) { return switch (a) { case 1 -> 1; default -> 0; }; } }",
+    2,
+    1
+)]
+#[case::java_boolean_runs(
+    Lang::Java,
+    "class A { boolean f(boolean a, boolean b, boolean c) { return a && b || c; } }",
+    3,
+    2
+)]
+#[case::java_one_run(
+    Lang::Java,
+    "class A { boolean f(boolean a, boolean b, boolean c) { return a && b && c; } }",
+    3,
+    1
+)]
+#[case::java_ternary(Lang::Java, "class A { int f(boolean a) { return a ? 1 : 2; } }", 2, 1)]
+#[case::java_catch_clause(
+    Lang::Java,
+    "class A { void f() { try { } catch (Exception e) { } finally { } } }",
+    2,
+    1
+)]
+#[case::java_lambda(
+    Lang::Java,
+    "class A { void f(boolean a) { Runnable q = () -> { if (a) { } }; } }",
+    2,
+    2
+)]
+#[case::java_labeled_break(
+    Lang::Java,
+    "class A { void f() { outer: for (;;) { break outer; } } }",
+    2,
+    2
+)]
+#[case::java_plain_break(Lang::Java, "class A { void f() { for (;;) { break; } } }", 2, 1)]
+#[case::java_recursion(Lang::Java, "class A { int f(int a) { return f(a); } }", 1, 1)]
+#[case::java_method_recursion(Lang::Java, "class A { int f(A o) { return o.f(o); } }", 1, 1)]
+#[case::kotlin_empty(Lang::Kotlin, "fun f() {}", 1, 0)]
+#[case::kotlin_if_only(
+    Lang::Kotlin,
+    "fun f(a: Int): Int {\n    if (a > 0) { return 1 }\n    return 0\n}",
+    2,
+    1
+)]
+#[case::kotlin_if_else(Lang::Kotlin, "fun f(a: Boolean) {\n    if (a) { } else { }\n}", 2, 2)]
+#[case::kotlin_else_if_chain(
+    Lang::Kotlin,
+    "fun f(a: Boolean, b: Boolean) {\n    if (a) { } else if (b) { } else { }\n}",
+    3,
+    3
+)]
+#[case::kotlin_loops(Lang::Kotlin, "fun f(a: Int) {\n    for (i in 0 until a) { }\n    while (a > 0) { }\n    do { } while (a > 0)\n}", 4, 3)]
+#[case::kotlin_when_entries(
+    Lang::Kotlin,
+    "fun f(a: Int) {\n    when (a) { 1 -> {} 2, 3 -> {} else -> {} }\n}",
+    3,
+    1
+)]
+#[case::kotlin_elvis(Lang::Kotlin, "fun f(a: Int?): Int {\n    return a ?: 0\n}", 2, 0)]
+#[case::kotlin_boolean_runs(
+    Lang::Kotlin,
+    "fun f(a: Boolean, b: Boolean, c: Boolean): Boolean {\n    return a && b || c\n}",
+    3,
+    2
+)]
+#[case::kotlin_catch_block(
+    Lang::Kotlin,
+    "fun f() {\n    try { } catch (e: Exception) { } finally { }\n}",
+    2,
+    1
+)]
+#[case::kotlin_lambda(
+    Lang::Kotlin,
+    "fun f() {\n    val l = { v: Int -> if (v > 1) 1 else 2 }\n}",
+    2,
+    3
+)]
+#[case::kotlin_anonymous_function(
+    Lang::Kotlin,
+    "fun f() {\n    val g = fun(v: Int): Int { if (v > 1) { return 1 }; return 2 }\n}",
+    2,
+    2
+)]
+#[case::kotlin_labeled_break(
+    Lang::Kotlin,
+    "fun f() {\n    loop@ for (i in 1..3) { break@loop }\n}",
+    2,
+    2
+)]
+#[case::kotlin_recursion(Lang::Kotlin, "fun f(a: Int): Int {\n    return f(a)\n}", 1, 1)]
+#[case::kotlin_expression_body(Lang::Kotlin, "fun f(a: Int) = if (a > 0) 1 else 2", 2, 2)]
+fn metrics_of_java_and_kotlin(
+    #[case] lang: Lang,
+    #[case] source: &str,
+    #[case] cyclomatic: u32,
+    #[case] cognitive: u32,
+) {
+    let m = first(lang, source);
+    assert_eq!(
+        (m.cyclomatic, m.cognitive),
+        (cyclomatic, cognitive),
+        "{source}"
+    );
+}
+
+#[test]
+fn kotlin_methods_are_functions_of_their_own() {
+    let found = complexity(
+        Lang::Kotlin,
+        "class C {\n    fun m() { if (true) { } }\n    fun n() { }\n}\n",
+    );
+    let seen: Vec<_> = found
+        .iter()
+        .map(|m| (m.symbol.as_str(), m.cyclomatic))
+        .collect();
+    assert_eq!(seen, vec![("m", 2), ("n", 1)]);
+}
+
+const SVELTE: &str = "<script lang=\"ts\">\n  function f(a: number) { if (a > 0) { return 1 } return 0 }\n  const g = (x: number) => x ? 1 : 2;\n</script>\n\n{#if show}<p>hi</p>{:else if other}<p>no</p>{/if}\n\n<script context=\"module\">\n  export function h(a) {\n    for (const x of a) { if (x) { return x } }\n  }\n</script>\n";
+
+#[test]
+fn a_svelte_component_measures_the_functions_of_its_scripts_by_the_lines_of_the_file() {
+    let found = complexity(Lang::Svelte, SVELTE);
+    let seen: Vec<_> = found
+        .iter()
+        .map(|m| {
+            (
+                m.symbol.as_str(),
+                m.start_line,
+                m.end_line,
+                m.cyclomatic,
+                m.cognitive,
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        vec![("f", 2, 2, 2, 1), ("g", 3, 3, 2, 1), ("h", 9, 11, 3, 3)]
+    );
+}
+
+#[test]
+fn a_svelte_component_without_a_script_has_no_functions() {
+    assert!(complexity(Lang::Svelte, "<p>hi</p>\n{#if x}<b>yes</b>{/if}\n").is_empty());
 }

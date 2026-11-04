@@ -31,6 +31,24 @@ fn fold(lang: Lang, source: &str, keep: &[&str]) -> Folded {
     &[],
     "const f = (a: number) => { /* pruned */ };\nclass A { m(): number { /* pruned */ } }\ninterface I { x: number }\n"
 )]
+#[case::java(
+    Lang::Java,
+    "class A {\n    int m(int a) { return a; }\n    A() { init(); }\n    interface I { void go(); }\n}\n",
+    &[],
+    "class A {\n    int m(int a) { /* pruned */ }\n    A() { /* pruned */ }\n    interface I { void go(); }\n}\n"
+)]
+#[case::kotlin(
+    Lang::Kotlin,
+    "fun f(a: Int): Int {\n    return a\n}\nfun g(a: Int) = a + 1\nfun keep() { go() }\n",
+    &["keep"],
+    "fun f(a: Int): Int { /* pruned */ }\nfun g(a: Int) { /* pruned */ }\nfun keep() { go() }\n"
+)]
+#[case::svelte(
+    Lang::Svelte,
+    "<script lang=\"ts\">\n  function f(a: number) { return a + 1 }\n  function keep() { go() }\n</script>\n<p>{x}</p>\n",
+    &["keep"],
+    "<script lang=\"ts\">\n  function f(a: number) { /* pruned */ }\n  function keep() { go() }\n</script>\n<p>{x}</p>\n"
+)]
 #[case::c(
     Lang::C,
     "struct s { int x; };\nint f(int a) { return a; }\n",

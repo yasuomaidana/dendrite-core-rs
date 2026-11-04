@@ -14,7 +14,7 @@ It ships the `dendrite-core` binary (JSON-RPC 2.0 over stdio) and the `dendrite_
 
 ## 1. Parsing layer
 
-- tree-sitter with compiled-in grammars: Go, Rust, TypeScript/TSX, JavaScript, Python, C, C++. Each operation receives the language ID explicitly, so it never guesses from content.
+- tree-sitter with compiled-in grammars: Go, Rust, TypeScript/TSX, JavaScript, Python, Java, Kotlin, Svelte, C, C++. Each operation receives the language ID explicitly, so it never guesses from content. A language is a row in a table, not code: `ast::lang` holds its grammar and its node tables (`Spec`: which node kinds branch, loop, nest, name a call's callee, are a default arm, hold a function's body), and every operation reads those tables. A language that embeds another (a Svelte component's `<script>`) says so in its `embedded` table, and the operations then run on those regions as the language they name, with the lines of the file (`ast::embedded`).
 - One `Parser` per language per thread (tree-sitter parsers are `!Sync`), pooled per thread.
 - Per-language node tables map grammar node kinds to the concepts every operation uses: *declaration*, *function body*, *branch*, *loop*, *boolean operator*, *doc comment*, *type declaration*. Supporting a new language means adding a grammar and a table, not new algorithms.
 

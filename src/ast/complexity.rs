@@ -12,11 +12,12 @@
 use serde::Serialize;
 use tree_sitter::Node;
 
+use crate::embedded::regions;
 use crate::kinds::{
-    table, KindTable, BOOL_NODE, BOOL_OP, CALL, CASE, CLOSURE, ELIF, ELSE, ELSE_CLAUSE, FLOW, IF,
-    JUMP, LABEL, LABELED_JUMP, SWITCH, TERNARY,
+    table, KindTable, BOOL_NODE, BOOL_OP, CALL, CASE, CLOSURE, ELIF, ELSE, ELSE_CLAUSE,
+    ELSE_EXEMPT, FLOW, IF, JUMP, LABEL, LABELED_JUMP, PATH_OP, SWITCH,
 };
-use crate::lang::Lang;
+use crate::lang::{DefaultArm, Lang, Spec};
 use crate::parse::{parse, text};
 
 /// The limits quality tooling holds a function to.
@@ -36,12 +37,30 @@ pub struct FunctionMetrics {
 /// Measures every function of `source`, in source order. Nested declarations get their own entry and do not
 /// count toward the function around them.
 pub fn complexity(lang: Lang, source: &str) -> Vec<FunctionMetrics> {
+    if !lang.spec().embedded.is_empty() {
+        return embedded_complexity(lang, source);
+    }
     if lang == Lang::Go {
         if let Some(found) = crate::ast::go::fast::complexity(source) {
             return found;
         }
     }
     complexity_tree(lang, source)
+}
+
+/// The functions of the regions of other languages inside the file, numbered by the lines of the file.
+fn embedded_complexity(lang: Lang, source: &str) -> Vec<FunctionMetrics> {
+    regions(lang, source)
+        .iter()
+        .flat_map(|region| {
+            let found = complexity(region.lang, &source[region.start..region.end]);
+            found.into_iter().map(move |mut m| {
+                m.start_line += region.row;
+                m.end_line += region.row;
+                m
+            })
+        })
+        .collect()
 }
 
 /// [`complexity`] through the syntax tree, for every language: the parser path, and the oracle the Go fast path
@@ -54,7 +73,7 @@ pub fn complexity_tree(lang: Lang, source: &str) -> Vec<FunctionMetrics> {
     loop {
         let node = cursor.node();
         if kinds.is_function(node) {
-            out.push(measure(node, kinds, source.as_bytes()));
+            out.push(measure(node, kinds, lang.spec(), source.as_bytes()));
         }
         if cursor.goto_first_child() {
             continue;
@@ -93,10 +112,11 @@ pub(crate) fn symbol_name(node: Node, source: &[u8], kinds: &KindTable) -> Strin
         .unwrap_or_default()
 }
 
-fn measure(func: Node, kinds: &KindTable, source: &[u8]) -> FunctionMetrics {
+fn measure(func: Node, kinds: &KindTable, spec: &'static Spec, source: &[u8]) -> FunctionMetrics {
     let symbol = symbol_name(func, source, kinds);
     let mut scorer = Scorer {
         kinds,
+        spec,
         source,
         name: &symbol,
         cyclomatic: 1,
@@ -114,6 +134,7 @@ fn measure(func: Node, kinds: &KindTable, source: &[u8]) -> FunctionMetrics {
 
 struct Scorer<'a> {
     kinds: &'a KindTable,
+    spec: &'static Spec,
     source: &'a [u8],
     name: &'a str,
     cyclomatic: u32,
@@ -154,18 +175,30 @@ impl Scorer<'_> {
     fn decisions(&self, node: Node) -> u32 {
         let counts = self.kinds.has(node, FLOW | ELIF)
             || (self.kinds.has(node, CASE) && !self.is_default_arm(node));
-        u32::from(counts) + u32::from(self.boolean_operator(node).is_some())
+        u32::from(counts)
+            + u32::from(self.boolean_operator(node).is_some())
+            + u32::from(self.path_operator(node))
     }
 
-    /// The `_` arm of a `match`/`case`, and C's `default:`; they add no path of their own.
+    /// An operator that adds a path but is not a boolean operator (Kotlin's `?:`): cyclomatic only.
+    fn path_operator(&self, node: Node) -> bool {
+        self.kinds.has(node, BOOL_NODE)
+            && node
+                .child_by_field_name("operator")
+                .is_some_and(|op| self.kinds.has(op, PATH_OP))
+    }
+
+    /// The default arm of a `match`/`switch`/`when`: it adds no path of its own.
     fn is_default_arm(&self, node: Node) -> bool {
-        match node.kind() {
-            "case_statement" => node.child_by_field_name("value").is_none(),
-            "match_arm" | "case_clause" => node
+        let kind = node.kind();
+        let rule = self.spec.default_arms.iter().find(|(k, _)| *k == kind);
+        rule.is_some_and(|(_, rule)| match rule {
+            DefaultArm::NoField(field) => node.child_by_field_name(field).is_none(),
+            DefaultArm::NoNamedChild => node.named_child_count() == 0,
+            DefaultArm::WildcardPattern => node
                 .named_child(0)
                 .is_some_and(|pattern| text(pattern, self.source).trim() == "_"),
-            _ => false,
-        }
+        })
     }
 
     /// The kind id of the boolean operator this node applies, if it applies one.
@@ -195,7 +228,10 @@ impl Scorer<'_> {
 
     /// An `else` keyword; the one of a Python ternary is part of the ternary, which is already paid.
     fn is_else(&self, node: Node) -> bool {
-        self.kinds.has(node, ELSE) && node.parent().is_some_and(|p| !self.kinds.has(p, TERNARY))
+        self.kinds.has(node, ELSE)
+            && node
+                .parent()
+                .is_some_and(|p| !self.kinds.has(p, ELSE_EXEMPT))
     }
 
     /// A structure that nests: an `else if` already paid through its `else`, anything else pays its depth.
@@ -243,8 +279,10 @@ impl Scorer<'_> {
         if self.name.is_empty() || !self.kinds.has(node, CALL) {
             return false;
         }
-        let callee = node
-            .child_by_field_name("function")
+        let callee = self
+            .spec
+            .callee
+            .of(node)
             .map(|f| text(f, self.source))
             .unwrap_or("");
         callee.rsplit(['.', ':']).next() == Some(self.name)

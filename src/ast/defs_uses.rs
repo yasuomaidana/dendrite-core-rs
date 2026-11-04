@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use tree_sitter::Node;
 
 use crate::complexity::name_node;
+use crate::embedded::regions;
 use crate::lang::{Lang, Spec};
 use crate::parse::{parse, text};
 use crate::symbols::Hunk;
@@ -41,11 +42,13 @@ fn is_literal(s: &str) -> bool {
     LITERALS.contains(&s)
 }
 
-fn is_decl_name(node: Node) -> bool {
+/// Whether `node` is the name a declaration introduces. A `name` field on a call is the function being called.
+fn is_decl_name(node: Node, spec: &Spec) -> bool {
     node.parent().is_some_and(|parent| {
-        parent.child_by_field_name("name") == Some(node)
-            || (parent.child_by_field_name("declarator").is_some()
-                && name_node(parent) == Some(node))
+        !spec.calls.contains(&parent.kind())
+            && (parent.child_by_field_name("name") == Some(node)
+                || (parent.child_by_field_name("declarator").is_some()
+                    && name_node(parent) == Some(node)))
     })
 }
 
@@ -68,7 +71,7 @@ fn check_use<'a>(node: Node<'a>, spec: &Spec, source: &'a [u8], uses: &mut Vec<U
     if !spec.identifiers.contains(&node.kind()) {
         return;
     }
-    if is_decl_name(node) {
+    if is_decl_name(node, spec) {
         return;
     }
     let s = text(node, source);
@@ -138,7 +141,51 @@ fn process_range(
 }
 
 /// Identifies symbols defined and identifiers used within the given line ranges.
+/// The symbols of the regions of other languages inside the file, for the part of each range that falls in them.
+fn embedded_defs_uses(lang: Lang, source: &str, ranges: &[Hunk]) -> Vec<RangeSymbols> {
+    let mut out: Vec<RangeSymbols> = (0..ranges.len())
+        .map(|range| RangeSymbols {
+            range,
+            defines: Vec::new(),
+            uses: Vec::new(),
+        })
+        .collect();
+    for region in regions(lang, source) {
+        let text = &source[region.start..region.end];
+        let last = region.row + text.split('\n').count();
+        let mut which = Vec::new();
+        let mut inside = Vec::new();
+        for (index, range) in ranges.iter().enumerate() {
+            let (start, end) = (
+                range.start_line.max(region.row + 1),
+                range.end_line.min(last),
+            );
+            if start <= end {
+                which.push(index);
+                inside.push(Hunk {
+                    start_line: start - region.row,
+                    end_line: end - region.row,
+                });
+            }
+        }
+        for (found, index) in defs_uses(region.lang, text, &inside).into_iter().zip(which) {
+            out[index].defines.extend(found.defines);
+            out[index].uses.extend(found.uses);
+        }
+    }
+    for symbols in &mut out {
+        symbols.defines.sort();
+        symbols.defines.dedup();
+        symbols.uses.sort();
+        symbols.uses.dedup();
+    }
+    out
+}
+
 pub fn defs_uses(lang: Lang, source: &str, ranges: &[Hunk]) -> Vec<RangeSymbols> {
+    if !lang.spec().embedded.is_empty() {
+        return embedded_defs_uses(lang, source, ranges);
+    }
     let tree = parse(lang, source);
     let source_bytes = source.as_bytes();
     let spec = lang.spec();
@@ -166,6 +213,15 @@ mod tests {
     #[case::javascript(Lang::JavaScript, "function f() {\n  g();\n}\n", 1, 3, "f", "g")]
     #[case::c(Lang::C, "void f() {\n    g();\n}\n", 1, 3, "f", "g")]
     #[case::cpp(Lang::Cpp, "void f() {\n    g();\n}\n", 1, 3, "f", "g")]
+    #[case::java(
+        Lang::Java,
+        "class A {\n    void f() {\n        g();\n    }\n}\n",
+        2,
+        4,
+        "f",
+        "g"
+    )]
+    #[case::kotlin(Lang::Kotlin, "fun f() {\n    g()\n}\n", 1, 3, "f", "g")]
     fn function_defining_one_symbol_and_calling_another(
         #[case] lang: Lang,
         #[case] source: &str,
@@ -394,5 +450,34 @@ mod tests {
         );
         assert_eq!(res[0].defines, vec!["f".to_string()]);
         assert_eq!(res[0].uses, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn svelte_symbols_come_from_the_part_of_each_range_inside_a_script() {
+        let source = "<script>\n  function f() {\n    g()\n  }\n</script>\n<p>hi</p>\n<script context=\"module\">\n  export function h() { f() }\n</script>\n";
+        let ranges = [
+            Hunk {
+                start_line: 1,
+                end_line: 5,
+            },
+            Hunk {
+                start_line: 6,
+                end_line: 6,
+            },
+            Hunk {
+                start_line: 8,
+                end_line: 8,
+            },
+        ];
+        let got = defs_uses(Lang::Svelte, source, &ranges);
+        assert_eq!(got[0].defines, vec!["f".to_string()]);
+        assert!(got[0].uses.contains(&"g".to_string()));
+        assert!(got[1].defines.is_empty() && got[1].uses.is_empty());
+        assert_eq!(got[2].defines, vec!["h".to_string()]);
+        assert!(got[2].uses.contains(&"f".to_string()));
+        assert_eq!(
+            got.iter().map(|r| r.range).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
     }
 }

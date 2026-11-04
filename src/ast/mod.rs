@@ -3,10 +3,12 @@
 
 pub mod complexity;
 pub mod defs_uses;
+pub mod embedded;
 pub mod fold;
 pub mod go;
 pub mod kinds;
 pub mod lang;
 pub mod last_node;
 pub mod parse;
+mod specs;
 pub mod symbols;
