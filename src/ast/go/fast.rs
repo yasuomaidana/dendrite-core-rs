@@ -10,6 +10,8 @@
 //! `fast_tests.rs` compares the two over any directory of Go source.
 
 use crate::ast::go::lex::{lex, Token, K};
+use crate::ast::go::skip::{kind, skip_group, skip_signature, starts_statement};
+use crate::ast::go::state::{Chain, Done, Frame, Part, Pending, Step};
 use crate::complexity::FunctionMetrics;
 
 /// The metrics of every function declaration of `source`, or `None` when the scan is not certain of them.
@@ -37,103 +39,6 @@ pub fn complexity(source: &str) -> Option<Vec<FunctionMetrics>> {
         i += 1;
     }
     (depth == 0).then_some(out)
-}
-
-fn kind(t: &[Token], i: usize) -> Option<K> {
-    t.get(i).map(|tok| tok.kind)
-}
-
-/// Whether token `i` begins a statement or declaration: after a semicolon, or after a line break that ends one.
-fn starts_statement(t: &[Token], i: usize) -> bool {
-    i == 0 || t[i - 1].kind == K::Semi || (t[i].nl_before && t[i - 1].kind.ends_statement())
-}
-
-/// The index after the group that opens at `at` with `open` and closes with the matching `close`.
-fn skip_group(t: &[Token], at: usize, open: K, close: K) -> Option<usize> {
-    let mut depth = 0i32;
-    for (j, tok) in t.iter().enumerate().skip(at) {
-        if tok.kind == open {
-            depth += 1;
-        } else if tok.kind == close {
-            depth -= 1;
-            if depth == 0 {
-                return Some(j + 1);
-            }
-        }
-    }
-    None
-}
-
-fn can_start_type(k: K) -> bool {
-    matches!(
-        k,
-        K::Star
-            | K::Arrow
-            | K::LBracket
-            | K::Map
-            | K::Chan
-            | K::Ident
-            | K::LParen
-            | K::Func
-            | K::Struct
-            | K::Interface
-    )
-}
-
-/// The index after the type that starts at `j`.
-fn skip_type(t: &[Token], mut j: usize) -> Option<usize> {
-    loop {
-        match kind(t, j)? {
-            K::Star | K::Arrow | K::Chan => j += 1,
-            K::Ident => return skip_named_type(t, j),
-            K::Func => return skip_signature(t, j + 1),
-            _ => return skip_enclosed_type(t, j),
-        }
-    }
-}
-
-/// A type name: `T`, `pkg.T`, with type arguments `T[int]`.
-fn skip_named_type(t: &[Token], mut j: usize) -> Option<usize> {
-    j += 1;
-    if kind(t, j) == Some(K::Dot) && kind(t, j + 1) == Some(K::Ident) {
-        j += 2;
-    }
-    if t.get(j)
-        .is_some_and(|x| x.kind == K::LBracket && !x.nl_before)
-    {
-        j = skip_group(t, j, K::LBracket, K::RBracket)?;
-    }
-    Some(j)
-}
-
-/// A type that starts with a delimiter or keyword: `[]T`, `map[K]V`, `(T)`, `struct{...}`, `interface{...}`.
-fn skip_enclosed_type(t: &[Token], j: usize) -> Option<usize> {
-    match kind(t, j)? {
-        K::LBracket => skip_type(t, skip_group(t, j, K::LBracket, K::RBracket)?),
-        K::Map if kind(t, j + 1) == Some(K::LBracket) => {
-            skip_type(t, skip_group(t, j + 1, K::LBracket, K::RBracket)?)
-        }
-        K::LParen => skip_group(t, j, K::LParen, K::RParen),
-        K::Struct | K::Interface if kind(t, j + 1) == Some(K::LBrace) => {
-            skip_group(t, j + 1, K::LBrace, K::RBrace)
-        }
-        _ => None,
-    }
-}
-
-/// The index after a function signature whose parameter list starts at `j`: the parameters, then a result
-/// on the same line.
-fn skip_signature(t: &[Token], j: usize) -> Option<usize> {
-    if kind(t, j)? != K::LParen {
-        return None;
-    }
-    let j = skip_group(t, j, K::LParen, K::RParen)?;
-    match t.get(j) {
-        Some(next) if next.kind != K::LBrace && !next.nl_before && can_start_type(next.kind) => {
-            skip_type(t, j)
-        }
-        _ => Some(j),
-    }
 }
 
 /// A top-level `func`: reads the signature, scans the body and records the function.
@@ -175,58 +80,6 @@ fn declaration(
             Some(j)
         }
     }
-}
-
-/// What a brace-delimited region of a body is, for the nesting level of what is inside it.
-#[derive(Clone, Copy, PartialEq)]
-enum Part {
-    Func,
-    Closure,
-    /// An `if`; it stays open across its `else` branches.
-    If,
-    ElseIf,
-    ElseBlock,
-    /// `for`, `switch` or `select`.
-    Loop,
-}
-
-struct Frame {
-    part: Part,
-    /// The brace depth inside the region.
-    open_depth: u32,
-    /// The nesting level to return to when the region closes.
-    level_before: u32,
-    /// The region closed and an `else` follows: it ends with the last branch of the chain.
-    waiting: bool,
-}
-
-/// A structure whose header is being read; its body is the first brace outside parentheses and literals.
-struct Pending {
-    part: Part,
-    level_before: u32,
-    depth: u32,
-    paren: u32,
-    literal: u32,
-}
-
-/// The `&&` and `||` of one expression: how many runs it has paid for.
-#[derive(Clone, Copy, Default)]
-struct Chain {
-    has_or: bool,
-    and_open: bool,
-}
-
-struct Done {
-    cyclomatic: u32,
-    cognitive: u32,
-    end_line: u32,
-    next: usize,
-}
-
-/// Where the scan goes after a token: on to another, or out with the finished function.
-enum Step {
-    Next(usize),
-    Done(Done),
 }
 
 struct Scan<'a> {
@@ -344,9 +197,10 @@ impl<'a> Scan<'a> {
     }
 
     fn end_expression(&mut self) {
-        if let Some(chain) = self.chains.last_mut() {
-            *chain = Chain::default();
-        }
+        self.chains
+            .last_mut()
+            .into_iter()
+            .for_each(|chain| *chain = Chain::default());
     }
 
     /// `if`, `for`, `switch` and `select`: a structure that nests what is inside it.
@@ -478,50 +332,53 @@ impl<'a> Scan<'a> {
     }
 
     fn open_brace(&mut self, k: usize) {
-        if self
+        // The header being read, when this brace is directly in it: does the brace open a literal?
+        let header = self
             .pending
             .last()
-            .is_some_and(|p| p.paren == 0 && p.depth + p.literal == self.depth)
-        {
-            let literal =
-                self.pending.last().is_some_and(|p| p.literal > 0) || self.is_literal_brace(k);
-            if literal {
-                self.open_literal_brace();
-                return;
-            }
-            if let Some(p) = self.pending.pop() {
-                self.depth += 1;
-                self.frames.push(Frame {
-                    part: p.part,
-                    open_depth: self.depth,
-                    level_before: p.level_before,
-                    waiting: false,
-                });
-                self.chains.push(Chain::default());
-                return;
-            }
+            .filter(|p| p.paren == 0 && p.depth + p.literal == self.depth)
+            .map(|p| p.literal > 0 || self.is_literal_brace(k));
+        match header {
+            Some(true) => self.open_literal_brace(),
+            Some(false) => self.open_body_brace(),
+            None => self.open_plain_brace(k),
         }
-        if self.t[k - 1].kind == K::Else
-            && !self.pending.last().is_some_and(|p| p.depth == self.depth)
-        {
-            self.depth += 1;
+    }
+
+    /// The brace that opens the body of the structure whose header was being read.
+    fn open_body_brace(&mut self) {
+        let p = self.pending.pop().expect("a header is pending");
+        self.depth += 1;
+        self.frames.push(Frame {
+            part: p.part,
+            open_depth: self.depth,
+            level_before: p.level_before,
+            waiting: false,
+        });
+        self.chains.push(Chain::default());
+    }
+
+    /// Any other brace: the block after an `else`, or a block or literal that nothing needs to track.
+    fn open_plain_brace(&mut self, k: usize) {
+        let in_header = self.pending.last().is_some_and(|p| p.depth == self.depth);
+        self.depth += 1;
+        if self.t[k - 1].kind == K::Else && !in_header {
             self.frames.push(Frame {
                 part: Part::ElseBlock,
                 open_depth: self.depth,
                 level_before: self.level,
                 waiting: false,
             });
-        } else {
-            self.depth += 1;
         }
         self.chains.push(Chain::default());
     }
 
     /// Opens a brace that belongs to a composite literal in a structure's header, not to its body.
     fn open_literal_brace(&mut self) {
-        if let Some(p) = self.pending.last_mut() {
-            p.literal += 1;
-        }
+        self.pending
+            .last_mut()
+            .expect("a header is pending")
+            .literal += 1;
         self.depth += 1;
         self.chains.push(Chain::default());
     }
@@ -529,10 +386,7 @@ impl<'a> Scan<'a> {
     /// Closes the region the `}` at `k` ends. Ends the scan when it was the function's own brace.
     fn close_brace(&mut self, k: usize) -> Option<Step> {
         let closing = self.depth;
-        if closing == 0 {
-            return None;
-        }
-        self.depth -= 1;
+        self.depth = closing.checked_sub(1)?;
         self.chains.pop();
         let owns = self
             .frames
@@ -584,10 +438,8 @@ impl<'a> Scan<'a> {
 
     /// The last branch of an `if` chain closed: the `if` frames waiting on it close too.
     fn end_chain(&mut self) {
-        while self.frames.last().is_some_and(|f| f.waiting) {
-            if let Some(f) = self.frames.pop() {
-                self.level = f.level_before;
-            }
+        while let Some(frame) = self.frames.pop_if(|f| f.waiting) {
+            self.level = frame.level_before;
         }
     }
 

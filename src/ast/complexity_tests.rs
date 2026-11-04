@@ -168,3 +168,21 @@ fn source_without_functions_has_no_metrics() {
 fn limits_are_the_documented_ones() {
     assert_eq!((MAX_CYCLOMATIC, MAX_COGNITIVE), (10, 15));
 }
+
+#[test]
+fn a_node_without_children_scores_as_a_straight_line() {
+    let tree = parse(Lang::Go, "package p");
+    let mut leaf = tree.root_node();
+    while let Some(child) = leaf.child(0) {
+        leaf = child;
+    }
+    let mut scorer = Scorer {
+        kinds: table(Lang::Go),
+        source: b"package p",
+        name: "",
+        cyclomatic: 1,
+        cognitive: 0,
+    };
+    scorer.score(leaf);
+    assert_eq!((scorer.cyclomatic, scorer.cognitive), (1, 0));
+}

@@ -23,6 +23,12 @@ const TYPES_IN_SIGNATURES: &str = "package p\ntype H func(int) (bool, error)\nfu
 const ELSE_COMMENT_IF: &str = "package p\nfunc f(a, b bool) int {\n\tif a {\n\t\treturn 1\n\t} else\n\t// a note between else and if\n\tif b {\n\t\tfor {\n\t\t}\n\t} else /* here too */ if a {\n\t\treturn 2\n\t}\n\treturn 0\n}\n";
 const HEADER_SHAPES: &str = "package p\nfunc f() {\n\tfor _, p := range []**int{nil} {\n\t\t_ = p\n\t}\n\tfor _, g := range []func() any{func() any { return nil }} {\n\t\t_ = g\n\t}\n\tfor _, c := range []chan int{nil} {\n\t\t_ = c\n\t}\n}\n";
 const TABLE_TESTS: &str = "package p\nfunc f() {\n\tfor _, c := range []struct {\n\t\tname string\n\t\tok   bool\n\t}{\n\t\t{\"a\", true},\n\t\t{\"b\", false},\n\t} {\n\t\tif c.ok && c.name != \"\" {\n\t\t}\n\t}\n\tfor _, x := range []interface{}{1, \"a\"} {\n\t\t_ = x\n\t}\n\tfor k, v := range map[string]struct{}{\"a\": {}} {\n\t\t_, _ = k, v\n\t}\n\tif _, ok := any(1).(interface{ M() }); ok {\n\t}\n}\n";
+const RESULT_TYPES: &str = "package p\ntype T[X any] struct{}\nfunc a() *int { return nil }\nfunc b() chan int { return nil }\nfunc c() <-chan int { return nil }\nfunc d() pkg.T { return nil }\nfunc e() T[int] { return T[int]{} }\nfunc f() []int { return nil }\nfunc g() map[string]int { return nil }\nfunc h() struct{} { return struct{}{} }\nfunc i() interface{} { return nil }\nfunc j() (int, error) { return 0, nil }\nfunc k() func() int { return nil }\nfunc l[X any](x X) []X { return []X{x} }\n";
+const INDEXED_NAME: &str =
+    "package p\nfunc f(a []int) int {\n\tif a[f[0]] > 0 {\n\t\treturn 1\n\t}\n\treturn 0\n}\n";
+const CLOSURE_IN_HEADER: &str =
+    "package p\nfunc f() {\n\tif func() bool { return g(1) }() {\n\t\treturn\n\t}\n}\n";
+const PARENTHESISED_LITERAL: &str = "package p\ntype T struct{ a bool }\nfunc f(x T) {\n\tif (T{a: true}) == x {\n\t\tfor _, y := range ([]T{x}) {\n\t\t\t_ = y\n\t\t}\n\t}\n}\n";
 const NOISE: &str = "package p\n// if for switch && || case\n/* if for\n && || */\nfunc f() string {\n\ts := \"if for && || case { }\"\n\tr := `raw if\n for { `\n\tc := '{'\n\t_ = c\n\treturn s + r\n}\n";
 const MULTILINE: &str = "package p\nfunc f(a, b, c bool) bool {\n\tif a &&\n\t\tb ||\n\t\tc {\n\t\treturn true\n\t}\n\treturn a &&\n\t\tb\n}\n";
 const LOCAL_TYPES: &str = "package p\nfunc f() {\n\ttype cfg struct {\n\t\tdo func()\n\t\tok bool\n\t}\n\ttype iface interface {\n\t\tf(int) bool\n\t}\n\tx := struct{ a int }{1}\n\t_ = x\n\tvar i interface{} = 1\n\tif _, ok := i.(interface{ f() }); ok {\n\t}\n}\n";
@@ -40,6 +46,10 @@ const INIT_AND_METHODS: &str = "package p\nvar g = func() int { if true { return
 #[case::header_literals(HEADER_LITERALS)]
 #[case::types_in_signatures(TYPES_IN_SIGNATURES)]
 #[case::noise(NOISE)]
+#[case::parenthesised_literal(PARENTHESISED_LITERAL)]
+#[case::closure_in_header(CLOSURE_IN_HEADER)]
+#[case::result_types(RESULT_TYPES)]
+#[case::indexed_name(INDEXED_NAME)]
 #[case::table_tests(TABLE_TESTS)]
 #[case::else_comment_if(ELSE_COMMENT_IF)]
 #[case::header_literal_shapes(HEADER_SHAPES)]
@@ -59,6 +69,11 @@ fn matches_the_parser(#[case] src: &str) {
 #[case::unterminated_string("package p\nfunc f() { s := \"open }\n")]
 #[case::unbalanced("package p\nfunc f() {\n")]
 #[case::no_name("package p\nfunc () {}\n")]
+#[case::stray_closing_brace("package p\n}\n")]
+#[case::signature_never_closed("package p\nfunc f(\n")]
+#[case::map_without_key_type("package p\nfunc f() map {\n}\n")]
+#[case::no_parameter_list("package p\nfunc f {\n}\n")]
+#[case::stray_closing_paren_in_a_body("package p\nfunc f() {\n\tx := 1)\n}\n")]
 #[case::generic_self_call("package p\nfunc gen[T any](x T) T {\n\treturn gen[T](x)\n}\n")]
 fn what_it_cannot_be_sure_of_falls_back(#[case] src: &str) {
     assert!(complexity(src).is_none());
@@ -158,4 +173,16 @@ fn a_qualified_condition_before_a_bare_block_follows_go_not_the_parser() {
 fn a_call_on_the_next_line_is_another_statement() {
     let src = "package p\nfunc ru() int {\n\tv := x.ru\n\t(y).z = 1\n\treturn v\n}\n";
     assert_eq!(fast(src)[0].cognitive, 0);
+}
+
+#[test]
+fn keywords_without_the_shape_of_valid_go_do_not_stop_the_scan() {
+    // Invalid Go, but a scan that only reads tokens must neither panic nor loop.
+    for src in [
+        "package p\nfunc f() {\n\tvar x struct\n}\n",
+        "package p\nfunc f() {\n\tfunc g() {}\n}\n",
+        "package p\nfunc f() {\n\tfor x := range []interface{} {\n\t}\n}\n",
+    ] {
+        assert!(complexity(src).is_some(), "{src}");
+    }
 }

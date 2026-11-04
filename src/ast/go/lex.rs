@@ -454,6 +454,14 @@ mod tests {
     #[case("i++ // a && b\nj--", vec![K::Ident, K::IncDec, K::Ident, K::IncDec])]
     #[case("x /* a\n&& b */ y", vec![K::Ident, K::Ident])]
     #[case("héllo := 1", vec![K::Ident, K::Assign, K::Lit])]
+    #[case("a / b % c ^ d ~e", vec![K::Ident, K::Op, K::Ident, K::Op, K::Ident, K::Op, K::Ident, K::Op, K::Ident])]
+    #[case("a /= b %= c ^= d *= e", vec![K::Ident, K::Assign, K::Ident, K::Assign, K::Ident, K::Assign, K::Ident, K::Assign, K::Ident])]
+    #[case("a &^ b &= c & d", vec![K::Ident, K::Op, K::Ident, K::Assign, K::Ident, K::Op, K::Ident])]
+    #[case("a |= b | c", vec![K::Ident, K::Assign, K::Ident, K::Op, K::Ident])]
+    #[case("a <<= 1 >>= 2", vec![K::Ident, K::Assign, K::Lit, K::Assign, K::Lit])]
+    #[case("a << b >> c <= d >= e < f > g", vec![K::Ident, K::Op, K::Ident, K::Op, K::Ident, K::Op, K::Ident, K::Op, K::Ident, K::Op, K::Ident, K::Op, K::Ident])]
+    #[case("a += b -= c", vec![K::Ident, K::Assign, K::Ident, K::Assign, K::Ident])]
+    #[case("a != b == c", vec![K::Ident, K::Op, K::Ident, K::Op, K::Ident])]
     fn tokens(#[case] src: &str, #[case] want: Vec<K>) {
         assert_eq!(kinds(src), want);
     }
