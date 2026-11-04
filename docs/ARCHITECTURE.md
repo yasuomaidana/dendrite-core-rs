@@ -90,7 +90,7 @@ The syntax analysis lives in `src/ast/` (languages and their node tables, parsin
 
 ## 3. Protocol
 
-JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. The schemas for every method live in `proto/*.json`.
+JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. This repository does not ship a `proto/` schema directory; method contracts are documented in the RPC implementation and the architecture docs.
 
 Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-32602` invalid params (unknown language, bad base64, a missing field), `-32000` operation error with `data.kind` (`no_complete_node`). Syntax errors never fail an operation: they appear in the tree and each operation works around them. A request without an `id` is a notification and gets no answer.
 
