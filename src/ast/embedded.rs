@@ -9,8 +9,10 @@ use crate::parse::{parse, text};
 
 /// A stretch of the file in another language.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Region {
+pub struct Region {
+    /// The language of the code in the region.
     pub lang: Lang,
+    /// The byte range of the region's text in the file.
     pub start: usize,
     pub end: usize,
     /// The row (from 0) the region starts on: line `n` of its text is line `n + row` of the file.
@@ -18,7 +20,7 @@ pub(crate) struct Region {
 }
 
 /// The embedded regions of `source`, in order; none for a language that embeds nothing.
-pub(crate) fn regions(lang: Lang, source: &str) -> Vec<Region> {
+pub fn regions(lang: Lang, source: &str) -> Vec<Region> {
     let embeds = lang.spec().embedded;
     if embeds.is_empty() {
         return Vec::new();
