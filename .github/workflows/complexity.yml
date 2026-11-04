@@ -3,6 +3,9 @@
 # workflow runs the language tools as an independent cross-check. Limits come from [complexity] in
 # .github/dendrite/directives.toml (defaults: cyclomatic 10, cognitive 15).
 name: complexity (second opinion)
+permissions:
+  contents: read
+
 on:
   push:
     branches: [develop, main]
