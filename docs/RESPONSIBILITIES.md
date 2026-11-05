@@ -49,7 +49,7 @@
 ### Exposed Interfaces
 1. **JSON-RPC 2.0 Sidecar Protocol over Stdio**:
    - The compiled binary `dendrite-core` runs as a child process of `dendrite-control`, communicating over standard input/output using JSON-RPC 2.0 framing.
-   - Schemas are formalized in `proto/*.json` and versioned under strict Semantic Versioning (SemVer).
+   - Method contracts are documented in the Rust RPC layer and architecture docs rather than in a `proto/*.json` directory, and the protocol version is still governed by semantic versioning (SemVer).
    - An initial handshake verifies protocol compatibility: a major version mismatch triggers a clean refusal, prompting the consumer to rebuild or fall back.
 2. **Core RPC RPC Methods**:
    - `ast.fold_signatures`: Accepts source code, language ID, and kept symbol identifiers; returns compressed source with `{ /* pruned */ }` placeholders.
@@ -156,20 +156,9 @@ Each relocated ticket has its own key in `DCORE`. The DEN original either is arc
 
 ---
 
-## 7. Imported Docs
-The following documentation files from the Dendrite control plane (`Dendrite/docs/...`) are mirrored and indexed in `docs/imports.json`:
+## 7. Specifications
 
-1. `docs/architecture/2026-10-quality-audit-execution-plan.md` — Authoritative blueprint defining the 5 sub-project decomposition (Pillar 9 §5), extraction order, sidecar JSON-RPC contract, and Plane v2 milestones (DEN-972).
-2. `docs/architecture/03-context-intelligence-re.md` — Architectural foundation for Tree-sitter AST parsing, precision context envelopes, and 50–80% token reduction via structural pruning.
-3. `docs/features/FEAT-004-repo-intel-ast.md` — Specifications for AST knowledge graph extraction, symbol call-graphs, and offline cyclomatic/cognitive complexity computation ($\le 10$).
-4. `docs/features/FEAT-010-ai-assisted-token-optimization.md` — Specifications for Tree-sitter semantic context compaction, AST signature folding, and cleanroom capability import.
-5. `docs/features/FEAT-011-polyglot-translation-synthesis.md` — Specifications for Tree-sitter Intermediate Semantic Representation (ISR), cross-language translation, and dual property test verification.
-6. `docs/features/FEAT-030-universal-query-engine-3tier-library-reuse.md` — Architecture for intent-driven forward/backward CFG/AST reachability slicing, safe Rust transpilation, and BLAKE3 chunk pre-checks.
-7. `docs/features/FEAT-031-persistent-store-hybrid-token-scheduler.md` — Specifications for BLAKE3 content-addressed persistent chunk storage, AST zero-token pass, and segmented analysis caching.
-8. `docs/cli/analyze.md` — CLI specifications for `dendrite analyze repo` and `complexity` subcommands computing function-level cyclomatic and cognitive metrics.
-9. `docs/cli/query.md` — CLI specifications for `dendrite query slice`, `swap`, and `transpile` driven by AST/CFG reachability.
-10. `docs/quality/scrum-and-complexity-scorecard.md` — Quality gates and engineering standards, requiring cyclomatic complexity $\le 10$, test coverage $\ge 85\%$, zero panics, and Testcontainers validation.
-11. `docs/reports/2026-10-17-done-ticket-audit.md` — Baseline audit cataloging the status of tickets DEN-010, DEN-018, DEN-020, DEN-056, and noting missing implementations in `pkg/ast/isr`.
+The technical specification lives in this repository: [ARCHITECTURE.md](ARCHITECTURE.md). Dendrite's CLI and MCP reference pages describe the commands Dendrite exposes on top of this repository and link here for the internals.
 
 ---
 
@@ -180,7 +169,7 @@ The following documentation files from the Dendrite control plane (`Dendrite/doc
 2. **ISR Parsing vs. Target Code Synthesis Responsibility**:
    Ticket DEN-020 (Tree-sitter ISR parsing) is relocated to `dendrite-core-rs`, whereas ticket DEN-021 (target code synthesis and property test generation) remains in `dendrite-control`. A clean boundary must be enforced: `dendrite-core-rs` is strictly responsible for deterministic AST analysis, type invariant extraction, and ISR JSON serialization; LLM-assisted code generation, prompt synthesis, and file writing belong exclusively to `dendrite-control`.
 3. **BLAKE3 Chunk Ledger vs. WAL Journal Storage**:
-   Ticket DEN-943 encompasses both BLAKE3 chunk hashing and write-ahead log (WAL) persistence (`.dendrite/wal.journal`). While BLAKE3 digest calculation is CPU-bound and belongs in `dendrite-core-rs`, file I/O, cursor fsync, and ticket state transitions are tightly bound to the Go control plane (`pkg/ctxbudget`). The exact division between Rust computational hashing and Go journal persistence must be codified in `proto/*.json`.
+   Ticket DEN-943 encompasses both BLAKE3 chunk hashing and write-ahead log (WAL) persistence (`.dendrite/wal.journal`). While BLAKE3 digest calculation is CPU-bound and belongs in `dendrite-core-rs`, file I/O, cursor fsync, and ticket state transitions are tightly bound to the Go control plane (`pkg/ctxbudget`). The exact division between Rust computational hashing and Go journal persistence remains to be codified in the shared protocol contract when that work lands.
 4. **Token Counting Fidelity Across Model Families**:
    Exact token counting in Rust is straightforward for open-weight models using HuggingFace BPE/tokenizers (e.g., Qwen, Llama), but frontier models (Claude 3.5, Gemini 2.5) use proprietary tokenizers or remote endpoints (`count_tokens`). `dendrite-core-rs` must explicitly return an `exact: bool` flag so `dendrite-control` knows when to apply the 1.15× heuristic safety factor.
 5. **Source-Level Slicing vs. Decompiled Binary Slicing**:
