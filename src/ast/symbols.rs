@@ -39,9 +39,12 @@ pub fn changed_symbols(lang: Lang, source: &str, hunks: &[Hunk]) -> Vec<ChangedS
     let mut decls = Vec::new();
     collect_declarations(lang, source, &mut decls);
     let mut out: Vec<ChangedSymbol> = Vec::new();
+    let span = source.lines().count().max(1);
     for (index, hunk) in hunks.iter().enumerate() {
         let before = out.len();
-        for line in hunk.start_line..=hunk.end_line {
+        // A request-supplied range is bounded by the size of the file, so a huge `end_line` cannot spin the sidecar.
+        let end = hunk.end_line.min(hunk.start_line.saturating_add(span));
+        for line in hunk.start_line..=end {
             let entry = entry_for(index, line, &decls);
             if !out[before..]
                 .last_mut()
@@ -231,6 +234,15 @@ mod tests {
     ) {
         let got = at(source, lang, line, line);
         assert_eq!(got, vec![(want.0.to_string(), want.1.to_string(), want.2)]);
+    }
+
+    #[rstest]
+    #[case::from_zero(0, usize::MAX)]
+    #[case::from_one(1, usize::MAX)]
+    #[case::from_the_top_of_the_range(usize::MAX - 1, usize::MAX)]
+    fn a_huge_range_is_bounded_by_the_size_of_the_file(#[case] start: usize, #[case] end: usize) {
+        let got = at(GO, Lang::Go, start, end);
+        assert!(got.len() <= GO.lines().count() + 1, "{} entries", got.len());
     }
 
     #[test]
