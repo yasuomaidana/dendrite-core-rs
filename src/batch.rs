@@ -57,7 +57,8 @@ pub fn complexity_batch_in(cache: &Cache, files: &[BatchFile], workers: usize) -
 
 /// The functions of `file`: from the cache when its language and bytes were seen before, else measured.
 fn cached(cache: &Cache, file: &BatchFile, lang: Lang) -> Arc<Vec<FunctionMetrics>> {
-    let k = key(&file.lang, &file.source);
+    // Keyed by the resolved language, so `go`/`golang` or ` TS ` and `ts` share one entry.
+    let k = key(&lang.index().to_string(), &file.source);
     cache
         .get(&k)
         .unwrap_or_else(|| cache.insert(k, complexity(lang, &file.source)))
@@ -138,6 +139,25 @@ mod tests {
             assert_eq!(functions[0].symbol, format!("f{n}"));
             assert_eq!(functions[0].cyclomatic, 1 + n as u32);
         }
+    }
+
+    #[rstest]
+    #[case("go", "GO")]
+    #[case("kotlin", "kt")]
+    #[case("ts", " TS ")]
+    fn language_aliases_share_one_cache_entry(#[case] a: &str, #[case] b: &str) {
+        let cache = Cache::new(64);
+        let source = "fun f() {}\n";
+        let batch = |lang: &str| {
+            vec![BatchFile {
+                lang: lang.into(),
+                source: source.into(),
+            }]
+        };
+        complexity_batch_in(&cache, &batch(a), 1);
+        assert_eq!(cache.stats().misses, 1);
+        complexity_batch_in(&cache, &batch(b), 1);
+        assert_eq!(cache.stats().misses, 1, "the alias hits the same entry");
     }
 
     #[test]
