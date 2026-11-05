@@ -213,3 +213,24 @@ fn run_stderr_error_arm_via_run_monomorphisation(#[case] write_ok: bool, #[case]
     assert_eq!(code, 1);
     assert!(String::from_utf8(err).unwrap().contains(message));
 }
+
+#[test]
+fn more_than_the_hunk_cap_is_refused() {
+    let hunks: Vec<Value> = (0..=MAX_HUNKS)
+        .map(|_| json!({"start_line": 1, "end_line": 1}))
+        .collect();
+    let r = request(
+        "ast.changed_symbols",
+        json!({"lang": "go", "source": "package p\n", "hunks": hunks}),
+    );
+    assert_eq!(r["error"]["code"], -32602);
+}
+
+#[test]
+fn a_hunk_past_the_end_of_the_file_is_skipped_over_rpc() {
+    let r = request(
+        "ast.changed_symbols",
+        json!({"lang": "go", "source": "package p\n", "hunks": [{"start_line": 10000000, "end_line": u64::MAX}]}),
+    );
+    assert_eq!(r["result"], json!([]));
+}

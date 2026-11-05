@@ -41,10 +41,12 @@ pub fn changed_symbols(lang: Lang, source: &str, hunks: &[Hunk]) -> Vec<ChangedS
     let mut out: Vec<ChangedSymbol> = Vec::new();
     let span = source.lines().count().max(1);
     for (index, hunk) in hunks.iter().enumerate() {
+        // Lines are 1-based and a request-supplied range is clamped to the file: a hunk that starts past the last line
+        // names no line and is skipped, so a huge `end_line` cannot spin the sidecar or invent file-scope entries.
+        let start = hunk.start_line.max(1);
+        let end = hunk.end_line.min(span);
         let before = out.len();
-        // A request-supplied range is bounded by the size of the file, so a huge `end_line` cannot spin the sidecar.
-        let end = hunk.end_line.min(hunk.start_line.saturating_add(span));
-        for line in hunk.start_line..=end {
+        for line in start..=end {
             let entry = entry_for(index, line, &decls);
             if !out[before..]
                 .last_mut()
@@ -243,6 +245,28 @@ mod tests {
     fn a_huge_range_is_bounded_by_the_size_of_the_file(#[case] start: usize, #[case] end: usize) {
         let got = at(GO, Lang::Go, start, end);
         assert!(got.len() <= GO.lines().count() + 1, "{} entries", got.len());
+    }
+
+    #[rstest]
+    #[case::past_eof(10_000_000, usize::MAX)]
+    #[case::just_past_eof(15, 20)]
+    #[case::inverted(7, 3)]
+    fn a_hunk_outside_the_file_maps_to_nothing(#[case] start: usize, #[case] end: usize) {
+        assert!(at(GO, Lang::Go, start, end).is_empty());
+    }
+
+    #[test]
+    fn many_huge_hunks_return_promptly_without_phantom_entries() {
+        let hunks = vec![
+            Hunk {
+                start_line: 10_000_000,
+                end_line: usize::MAX,
+            };
+            5_000
+        ];
+        let started = std::time::Instant::now();
+        assert!(changed_symbols(Lang::Go, GO, &hunks).is_empty());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

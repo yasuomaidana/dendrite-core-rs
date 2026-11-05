@@ -90,7 +90,7 @@ The syntax analysis lives in `src/ast/` (languages and their node tables, parsin
 
 ## 3. Protocol
 
-JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. This repository does not ship a `proto/` schema directory; method contracts are documented in the RPC implementation and the architecture docs. Protocol 1.1.0 added `ast.complexity_batch`: `{files: [{lang, source}]}` returns `{results: [{functions} | {error}]}` in request order, measured on up to one thread per core.
+JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. This repository does not ship a `proto/` schema directory; method contracts are documented in the RPC implementation and the architecture docs. Protocol 1.1.0 added `ast.complexity_batch`: `{files: [{lang, source}]}` returns `{results: [{functions} | {error}]}` in request order, measured on up to one thread per core. Protocol 1.1.1 bounds `ast.changed_symbols`: a request carries at most 10000 hunks (more is refused with -32602), a hunk is clamped to the file, and a hunk that starts past the last line maps to nothing.
 
 Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-32602` invalid params (unknown language, bad base64, a missing field), `-32000` operation error with `data.kind` (`no_complete_node`). Syntax errors never fail an operation: they appear in the tree and each operation works around them. A request without an `id` is a notification and gets no answer.
 

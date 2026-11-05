@@ -4,6 +4,9 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- `ast.changed_symbols`: a hunk is clamped to the file and a hunk that starts past the last line maps to nothing (no phantom file-scope entries); a request carries at most 10000 hunks, more is refused with -32602. Protocol 1.1.1 (DCORE-25).
+
 ### Added
 - Java, Kotlin and Svelte (`java`, `kotlin`/`kt`, `svelte`) for `ast.complexity`, `ast.fold_signatures`, `ast.changed_symbols` and `ast.defs_uses`, so Rust, TypeScript, Svelte, Python, Kotlin, Java, C and C++ are all covered. A Svelte component has no functions of its own: those of its `<script>` blocks are analysed as TypeScript (`lang="ts"`) or JavaScript, numbered by the lines of the file (DCORE-20).
 - The node tables (`ast::specs`) gained what these languages need, and no language is special-cased in code: where a call names its callee (`callee`), which arm is the default one (`default_arms`), where a function's body is when it is not a `body` field (`body_kinds`), operators that add a path without being boolean operators (`path_ops`, Kotlin's `?:`), and `embedded` regions.

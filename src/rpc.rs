@@ -20,7 +20,10 @@ use crate::symbols::{changed_symbols, Hunk};
 use crate::tokens;
 
 /// The protocol version; a client refuses a different major version.
-pub const PROTOCOL: &str = "1.1.0";
+pub const PROTOCOL: &str = "1.1.1";
+
+/// The most hunks one `ast.changed_symbols` request may carry; more is refused with -32602.
+pub const MAX_HUNKS: usize = 10_000;
 
 type Handler = fn(Value) -> Result<Value, CoreError>;
 
@@ -145,6 +148,12 @@ fn ast_last_node(params: Value) -> Result<Value, CoreError> {
 
 fn ast_changed(params: Value) -> Result<Value, CoreError> {
     call_lang(params, |lang, p: ChangedParams| {
+        if p.hunks.len() > MAX_HUNKS {
+            return Err(CoreError::InvalidParams(format!(
+                "at most {MAX_HUNKS} hunks per request, got {}",
+                p.hunks.len()
+            )));
+        }
         Ok(changed_symbols(lang, &p.source, &p.hunks))
     })
 }
