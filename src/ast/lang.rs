@@ -174,7 +174,7 @@ pub enum Callee {
 
 impl Callee {
     /// The node that names the callee of `call`.
-    pub(crate) fn of<'t>(self, call: tree_sitter::Node<'t>) -> Option<tree_sitter::Node<'t>> {
+    pub(crate) fn of(self, call: tree_sitter::Node) -> Option<tree_sitter::Node> {
         match self {
             Callee::Field(name) => call.child_by_field_name(name),
             Callee::FirstChild => call.named_child(0),
