@@ -5,6 +5,7 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 ## [Unreleased]
 
 ### Fixed
+- CI: every workflow runs on every pull request, whatever its target branch (`ci.yml` no longer lists `develop` and `main`); pushes still run on `develop` and `main` (DCORE-28).
 - `ast.changed_symbols`: a hunk is clamped to the file and a hunk that starts past the last line maps to nothing (no phantom file-scope entries); a request carries at most 10000 hunks, more is refused with -32602. Protocol 1.1.1 (DCORE-25).
 
 ### Added
