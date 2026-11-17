@@ -16,11 +16,12 @@ use crate::fold::fold_signatures;
 use crate::hash::{blake3_hex, chunk_id};
 use crate::lang::Lang;
 use crate::last_node::last_complete_node;
+use crate::props::component_props;
 use crate::symbols::{changed_symbols, Hunk};
 use crate::tokens;
 
 /// The protocol version; a client refuses a different major version.
-pub const PROTOCOL: &str = "1.1.1";
+pub const PROTOCOL: &str = "1.2.0";
 
 /// The most hunks one `ast.changed_symbols` request may carry; more is refused with -32602.
 pub const MAX_HUNKS: usize = 10_000;
@@ -31,6 +32,7 @@ const METHODS: &[(&str, Handler)] = &[
     ("health", health),
     ("ast.complexity", ast_complexity),
     ("ast.complexity_batch", ast_complexity_batch),
+    ("ast.component_props", ast_component_props),
     ("ast.fold_signatures", ast_fold),
     ("ast.last_complete_node", ast_last_node),
     ("ast.changed_symbols", ast_changed),
@@ -131,6 +133,12 @@ fn ast_complexity_batch(params: Value) -> Result<Value, CoreError> {
     call(params, |p: BatchParams| {
         let workers = default_workers(p.files.len());
         Ok(json!({"results": complexity_batch(&p.files, workers)}))
+    })
+}
+
+fn ast_component_props(params: Value) -> Result<Value, CoreError> {
+    call_lang(params, |lang, p: SourceParams| {
+        Ok(json!({"props": component_props(lang, &p.source)}))
     })
 }
 

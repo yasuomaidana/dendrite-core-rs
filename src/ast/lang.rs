@@ -35,6 +35,7 @@ const IDS: &[(&str, Lang)] = &[
     ("tsx", Lang::Tsx),
     ("javascript", Lang::JavaScript),
     ("js", Lang::JavaScript),
+    ("jsx", Lang::JavaScript),
     ("c", Lang::C),
     ("cpp", Lang::Cpp),
     ("c++", Lang::Cpp),
@@ -220,6 +221,7 @@ mod tests {
     #[case("ts", Lang::TypeScript)]
     #[case("tsx", Lang::Tsx)]
     #[case("js", Lang::JavaScript)]
+    #[case("jsx", Lang::JavaScript)]
     #[case("c", Lang::C)]
     #[case("c++", Lang::Cpp)]
     #[case("java", Lang::Java)]

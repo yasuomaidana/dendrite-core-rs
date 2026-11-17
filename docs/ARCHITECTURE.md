@@ -84,13 +84,26 @@ Both lists are de-duplicated and sorted. Ranges are 1-based and inclusive. Outpu
 
 `uses` is an over-approximation on purpose: names that are local to the range (parameters, variables declared inside it) and built-in type names are included, because telling them apart needs scope resolution. A caller that builds a dependency graph from it (dendrite-git-rs) gets, at worst, an extra edge that keeps two hunks together; it never misses a real reference.
 
+### 2.10 `ast.component_props`
+Input: `{lang, source}`. Output: `{props: [{name, type?, optional, default?, rest, line}]}`.
+
+Extracts the props of UI components from their parse trees for Svelte 5 (`$props()`), Svelte legacy (`export let`), and React function components in TypeScript, TSX, and JavaScript:
+- **name:** the prop's name; for renamed properties (`{ a: alias }`), the external name callers pass (`a`).
+- **type:** the declared type as written, when available.
+- **optional:** true for `name?: T` and for props with a default value.
+- **default:** the default value text as written, when present.
+- **rest:** true for `...rest` parameter collecting remaining properties.
+- **line:** 1-based line number where the prop is declared in the source.
+
+Props declared in destructured parameters and in type annotations/interfaces (`interface Props`, `type Props = {...}`) are merged. Declared types are resolved by name, including intersections (`Base & {...}`) and generics (`Props<T>`, resolved through the name); a cycle of aliases ends instead of looping. For `const Button: FC<Props> = ({ a }) => ...` the type comes from the annotation when the parameter has none. `jsx` is an alias of `javascript`.
+
 ### Source layout
 
-The syntax analysis lives in `src/ast/` (languages and their node tables, parsing, complexity, folding, last complete node, changed symbols, defs and uses), re-exported at the crate root so `dendrite_core::complexity` and the other paths do not change. `src/rpc.rs` is the JSON-RPC server, `src/hash.rs` and `src/tokens.rs` the rest of the operations.
+The syntax analysis lives in `src/ast/` (languages and their node tables, parsing, complexity, folding, last complete node, changed symbols, defs and uses, component props), re-exported at the crate root so `dendrite_core::complexity` and the other paths do not change. `src/rpc.rs` is the JSON-RPC server, `src/hash.rs` and `src/tokens.rs` the rest of the operations.
 
 ## 3. Protocol
 
-JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. This repository does not ship a `proto/` schema directory; method contracts are documented in the RPC implementation and the architecture docs. Protocol 1.1.0 added `ast.complexity_batch`: `{files: [{lang, source}]}` returns `{results: [{functions} | {error}]}` in request order, measured on up to one thread per core. Protocol 1.1.1 bounds `ast.changed_symbols`: a request carries at most 10000 hunks (more is refused with -32602), a hunk is clamped to the file, and a hunk that starts past the last line maps to nothing.
+JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. This repository does not ship a `proto/` schema directory; method contracts are documented in the RPC implementation and the architecture docs. Protocol 1.1.0 added `ast.complexity_batch`: `{files: [{lang, source}]}` returns `{results: [{functions} | {error}]}` in request order, measured on up to one thread per core. Protocol 1.1.1 bounds `ast.changed_symbols`: a request carries at most 10000 hunks (more is refused with -32602), a hunk is clamped to the file, and a hunk that starts past the last line maps to nothing. Protocol 1.2.0 added `ast.component_props`: `{lang, source}` returns `{props: [{name, type?, optional, default?, rest, line}]}`.
 
 Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-32602` invalid params (unknown language, bad base64, a missing field), `-32000` operation error with `data.kind` (`no_complete_node`). Syntax errors never fail an operation: they appear in the tree and each operation works around them. A request without an `id` is a notification and gets no answer.
 
@@ -98,7 +111,7 @@ Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-3
 
 | Method | State |
 |---|---|
-| `health`, `ast.complexity`, `ast.fold_signatures`, `ast.last_complete_node`, `ast.changed_symbols`, `ast.defs_uses`, `hash.blake3`, `hash.chunk_id`, `tokens.count` | implemented |
+| `health`, `ast.complexity`, `ast.fold_signatures`, `ast.last_complete_node`, `ast.changed_symbols`, `ast.defs_uses`, `ast.component_props`, `hash.blake3`, `hash.chunk_id`, `tokens.count` | implemented |
 | `cfg.slice`, `isr.extract` | not implemented (DCORE-5 and later); the server answers `-32601` |
 | exact `tokens.count` | needs bundled tokenizer files |
 
