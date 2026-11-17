@@ -346,14 +346,18 @@ fn merge(entry: &Prop, member: Option<&Prop>) -> Prop {
 /// Every node under `root`, in source order.
 fn descendants(root: Node) -> Vec<Node> {
     let mut out = Vec::new();
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
-        out.push(n);
-        let mut cursor = n.walk();
-        let children: Vec<_> = n.children(&mut cursor).collect();
-        stack.extend(children.into_iter().rev());
+    let mut cursor = root.walk();
+    loop {
+        out.push(cursor.node());
+        if cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return out;
+            }
+        }
     }
-    out
 }
 
 #[cfg(test)]
@@ -497,27 +501,20 @@ mod tests {
         assert_eq!(names(&props), ["data-x", "render"]);
     }
 
-    #[test]
-    fn a_prop_is_listed_once_across_sites_and_members() {
-        let props = component_props(
-            Lang::Tsx,
-            "interface P { a: string }\nfunction One({ a }: P) {}\nfunction Two({ a }: P) {}\n",
-        );
-        assert_eq!(names(&props), ["a"]);
+    #[rstest]
+    #[case::listed_once_across_sites_and_members(
+        "interface P { a: string }\nfunction One({ a }: P) {}\nfunction Two({ a }: P) {}\n"
+    )]
+    #[case::unnamed_property_and_odd_patterns_are_skipped(
+        "function Box({ [k]: v, a }: { a: string }) { return null; }"
+    )]
+    fn a_prop_named_a_is_listed_once(#[case] source: &str) {
+        assert_eq!(names(&component_props(Lang::Tsx, source)), ["a"]);
     }
 
     #[test]
     fn other_languages_have_no_components() {
         assert!(component_props(Lang::Go, "package p\nfunc F() {}\n").is_empty());
-    }
-
-    #[test]
-    fn a_property_without_a_name_is_skipped_and_odd_patterns_are_ignored() {
-        let props = component_props(
-            Lang::Tsx,
-            "function Box({ [k]: v, a }: { a: string }) { return null; }",
-        );
-        assert_eq!(names(&props), ["a"]);
     }
 
     #[test]

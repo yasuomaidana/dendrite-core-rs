@@ -239,34 +239,44 @@ fn a_hunk_past_the_end_of_the_file_is_skipped_over_rpc() {
     assert_eq!(r["result"], json!([]));
 }
 
+/// An expected prop; it is optional exactly when it has a default.
+fn prop(name: &str, ty: Option<&str>, default: Option<&str>, line: usize) -> Value {
+    let mut p = json!({"name": name, "optional": default.is_some(), "rest": false, "line": line});
+    if let Some(t) = ty {
+        p["type"] = json!(t);
+    }
+    if let Some(d) = default {
+        p["default"] = json!(d);
+    }
+    p
+}
+
 #[rstest]
 #[case::svelte_runes(
     "svelte",
     "<script lang=\"ts\">\nlet { a = 1, b: alias = 2, c = { x: { y: 3 } }, ...rest } = $props();\n</script>\n",
-    json!([
-        {"name": "a", "optional": true, "default": "1", "rest": false, "line": 2},
-        {"name": "b", "optional": true, "default": "2", "rest": false, "line": 2},
-        {"name": "c", "optional": true, "default": "{ x: { y: 3 } }", "rest": false, "line": 2},
-        {"name": "rest", "optional": false, "rest": true, "line": 2}
-    ])
+    vec![
+        prop("a", None, Some("1"), 2),
+        prop("b", None, Some("2"), 2),
+        prop("c", None, Some("{ x: { y: 3 } }"), 2),
+        json!({"name": "rest", "optional": false, "rest": true, "line": 2}),
+    ]
 )]
 #[case::svelte_legacy(
     "svelte",
     "<script lang=\"ts\">\nexport let a = 1;\nexport let b: string;\n</script>\n",
-    json!([
-        {"name": "a", "optional": true, "default": "1", "rest": false, "line": 2},
-        {"name": "b", "type": "string", "optional": false, "rest": false, "line": 3}
-    ])
+    vec![prop("a", None, Some("1"), 2), prop("b", Some("string"), None, 3)]
 )]
 #[case::tsx_callback(
     "tsx",
     "interface Props {\n  title: string;\n  onClick: (e: { x: number }) => void;\n}\nexport function Button({ title, onClick }: Props) { return null; }",
-    json!([
-        {"name": "title", "type": "string", "optional": false, "rest": false, "line": 5},
-        {"name": "onClick", "type": "(e: { x: number }) => void", "optional": false, "rest": false, "line": 5}
-    ])
+    vec![
+        prop("title", Some("string"), None, 5),
+        prop("onClick", Some("(e: { x: number }) => void"), None, 5),
+    ]
 )]
-fn component_props_rpc(#[case] lang: &str, #[case] source: &str, #[case] want_props: Value) {
+fn component_props_rpc(#[case] lang: &str, #[case] source: &str, #[case] want: Vec<Value>) {
+    let want_props = json!(want);
     let r = request(
         "ast.component_props",
         json!({"lang": lang, "source": source}),
