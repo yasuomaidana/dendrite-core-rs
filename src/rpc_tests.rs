@@ -35,6 +35,7 @@ fn health_reports_name_and_protocol() {
 #[case::blake3_b64("hash.blake3", json!({"data_b64": "YWJj"}), "/result/hex", json!("6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"))]
 #[case::chunk("hash.chunk_id", json!({"path": "a", "symbol": "b", "content": "c"}), "/result/hex", json!(chunk_id("a", "b", "c")))]
 #[case::tokens("tokens.count", json!({"model": "qwen", "text": "abcd"}), "/result", json!({"count": 2, "exact": false}))]
+#[case::component_props("ast.component_props", json!({"lang": "svelte", "source": "<script>\nlet { a = 1 } = $props();\n</script>\n"}), "/result/props/0/name", json!("a"))]
 fn answers(
     #[case] method: &str,
     #[case] params: Value,
@@ -51,7 +52,9 @@ fn answers(
 #[case::unknown_language_last("ast.last_complete_node", json!({"lang": "cobol", "buffer": ""}), -32602, None)]
 #[case::unknown_language_changed("ast.changed_symbols", json!({"lang": "cobol", "source": "", "hunks": []}), -32602, None)]
 #[case::unknown_language_defs_uses("ast.defs_uses", json!({"lang": "cobol", "source": "", "ranges": []}), -32602, None)]
+#[case::unknown_language_props("ast.component_props", json!({"lang": "cobol", "source": ""}), -32602, None)]
 #[case::missing_field_defs_uses("ast.defs_uses", json!({"lang": "go", "source": ""}), -32602, None)]
+#[case::missing_field_props("ast.component_props", json!({"lang": "svelte"}), -32602, None)]
 #[case::missing_field("ast.complexity", json!({"lang": "go"}), -32602, None)]
 #[case::missing_files_batch("ast.complexity_batch", json!({}), -32602, None)]
 #[case::missing_field_fold("ast.fold_signatures", json!({"lang": "go"}), -32602, None)]
@@ -63,6 +66,7 @@ fn answers(
 #[case::missing_lang_last("ast.last_complete_node", json!({"buffer": ""}), -32602, None)]
 #[case::missing_lang_changed("ast.changed_symbols", json!({"source": "", "hunks": []}), -32602, None)]
 #[case::missing_lang_defs_uses("ast.defs_uses", json!({"source": "", "ranges": []}), -32602, None)]
+#[case::missing_lang_props("ast.component_props", json!({"source": ""}), -32602, None)]
 #[case::both_hash_inputs("hash.blake3", json!({"data": "a", "data_b64": "YQ=="}), -32602, None)]
 #[case::no_hash_input("hash.blake3", json!({}), -32602, None)]
 #[case::bad_base64("hash.blake3", json!({"data_b64": "!!"}), -32602, None)]
@@ -233,4 +237,49 @@ fn a_hunk_past_the_end_of_the_file_is_skipped_over_rpc() {
         json!({"lang": "go", "source": "package p\n", "hunks": [{"start_line": 10000000, "end_line": u64::MAX}]}),
     );
     assert_eq!(r["result"], json!([]));
+}
+
+/// An expected prop; it is optional exactly when it has a default.
+fn prop(name: &str, ty: Option<&str>, default: Option<&str>, line: usize) -> Value {
+    let mut p = json!({"name": name, "optional": default.is_some(), "rest": false, "line": line});
+    if let Some(t) = ty {
+        p["type"] = json!(t);
+    }
+    if let Some(d) = default {
+        p["default"] = json!(d);
+    }
+    p
+}
+
+#[rstest]
+#[case::svelte_runes(
+    "svelte",
+    "<script lang=\"ts\">\nlet { a = 1, b: alias = 2, c = { x: { y: 3 } }, ...rest } = $props();\n</script>\n",
+    vec![
+        prop("a", None, Some("1"), 2),
+        prop("b", None, Some("2"), 2),
+        prop("c", None, Some("{ x: { y: 3 } }"), 2),
+        json!({"name": "rest", "optional": false, "rest": true, "line": 2}),
+    ]
+)]
+#[case::svelte_legacy(
+    "svelte",
+    "<script lang=\"ts\">\nexport let a = 1;\nexport let b: string;\n</script>\n",
+    vec![prop("a", None, Some("1"), 2), prop("b", Some("string"), None, 3)]
+)]
+#[case::tsx_callback(
+    "tsx",
+    "interface Props {\n  title: string;\n  onClick: (e: { x: number }) => void;\n}\nexport function Button({ title, onClick }: Props) { return null; }",
+    vec![
+        prop("title", Some("string"), None, 5),
+        prop("onClick", Some("(e: { x: number }) => void"), None, 5),
+    ]
+)]
+fn component_props_rpc(#[case] lang: &str, #[case] source: &str, #[case] want: Vec<Value>) {
+    let want_props = json!(want);
+    let r = request(
+        "ast.component_props",
+        json!({"lang": lang, "source": source}),
+    );
+    assert_eq!(r["result"]["props"], want_props);
 }

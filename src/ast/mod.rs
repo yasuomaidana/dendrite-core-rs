@@ -10,5 +10,6 @@ pub mod kinds;
 pub mod lang;
 pub mod last_node;
 pub mod parse;
+pub mod props;
 mod specs;
 pub mod symbols;
