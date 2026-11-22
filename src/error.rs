@@ -15,6 +15,10 @@ pub enum CoreError {
     NoCompleteNode,
     #[error("not a PE image: {0}")]
     NotPe(String),
+    #[error("unsupported format: {0}")]
+    UnsupportedFormat(String),
+    #[error("unsupported machine: {0}")]
+    UnsupportedMachine(String),
 }
 
 impl CoreError {
@@ -22,9 +26,11 @@ impl CoreError {
     pub fn code(&self) -> i64 {
         match self {
             CoreError::MethodNotFound(_) => -32601,
-            CoreError::UnknownLanguage(_) | CoreError::InvalidParams(_) | CoreError::NotPe(_) => {
-                -32602
-            }
+            CoreError::UnknownLanguage(_)
+            | CoreError::InvalidParams(_)
+            | CoreError::NotPe(_)
+            | CoreError::UnsupportedFormat(_)
+            | CoreError::UnsupportedMachine(_) => -32602,
             _ => -32000,
         }
     }
@@ -34,6 +40,8 @@ impl CoreError {
         match self {
             CoreError::NoCompleteNode => "no_complete_node",
             CoreError::NotPe(_) => "not_pe",
+            CoreError::UnsupportedFormat(_) => "unsupported_format",
+            CoreError::UnsupportedMachine(_) => "unsupported_machine",
             _ => "",
         }
     }
@@ -50,6 +58,8 @@ mod tests {
     #[case(CoreError::MethodNotFound("x".into()), -32601, "")]
     #[case(CoreError::NoCompleteNode, -32000, "no_complete_node")]
     #[case(CoreError::NotPe("x".into()), -32602, "not_pe")]
+    #[case(CoreError::UnsupportedFormat("x".into()), -32602, "unsupported_format")]
+    #[case(CoreError::UnsupportedMachine("x".into()), -32602, "unsupported_machine")]
     fn codes_and_kinds(#[case] err: CoreError, #[case] code: i64, #[case] kind: &str) {
         assert_eq!((err.code(), err.kind()), (code, kind));
         assert!(!err.to_string().is_empty());

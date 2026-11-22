@@ -3,8 +3,6 @@
 //! The image is read with the bounds-checked parser of the `object` crate, so a damaged or hostile file is an
 //! error, never a panic. What the answer may hold is capped: an agent reads it, so it has to stay small.
 
-use std::fs;
-
 use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{
     ExportTarget, ImageNtHeaders, ImageOptionalHeader, Import, ImportTable, PeFile,
@@ -13,6 +11,9 @@ use object::{FileKind, LittleEndian as LE};
 use serde::Serialize;
 
 use crate::error::CoreError;
+use image::{hex, not_pe, read_file};
+
+pub use image::MAX_FILE_BYTES;
 
 /// Imported functions, DLLs and exports share this many names; past it the answer says `truncated`.
 pub const MAX_NAMES: usize = 500;
@@ -20,8 +21,6 @@ pub const MAX_NAMES: usize = 500;
 pub const MAX_SECTIONS: usize = 96;
 /// A longer name is cut to this many bytes.
 pub const MAX_NAME_LEN: usize = 256;
-/// A larger file is refused before it is read.
-pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 /// An export table with more entries than the 16 bits of an ordinal can number is not read.
 const MAX_EXPORT_ENTRIES: usize = 65_536;
 
@@ -108,20 +107,12 @@ impl Limits {
     }
 }
 
-fn hex(value: u64) -> String {
-    format!("{value:#x}")
-}
-
 /// The name of a known code, or the code in hex.
 fn named(table: &[(u16, &'static str)], code: u16) -> String {
     table
         .iter()
         .find(|(known, _)| *known == code)
         .map_or_else(|| hex(code.into()), |(_, name)| (*name).to_string())
-}
-
-fn not_pe(why: impl ToString) -> CoreError {
-    CoreError::NotPe(why.to_string())
 }
 
 fn sections<H: ImageNtHeaders>(file: &PeFile<H>, limits: &mut Limits) -> Vec<Section> {
@@ -264,20 +255,15 @@ pub fn parse_bytes(data: &[u8]) -> Result<PeInfo, CoreError> {
 
 /// Describes the PE image at `path`. Only a regular file of at most [`MAX_FILE_BYTES`] is read.
 pub fn parse_file(path: &str) -> Result<PeInfo, CoreError> {
-    let unreadable = |e: std::io::Error| not_pe(format!("cannot read `{path}`: {e}"));
-    let meta = fs::metadata(path).map_err(unreadable)?;
-    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
-        return Err(not_pe(format!(
-            "`{path}` is not a regular file of at most {MAX_FILE_BYTES} bytes"
-        )));
-    }
-    parse_bytes(&fs::read(path).map_err(unreadable)?)
+    parse_bytes(&read_file(path)?)
 }
 
+pub mod cfg;
+pub mod functions;
+mod image;
+
 #[cfg(test)]
-#[path = "pe_fixture.rs"]
 pub(crate) mod fixture;
 
 #[cfg(test)]
-#[path = "pe_tests.rs"]
 mod tests;

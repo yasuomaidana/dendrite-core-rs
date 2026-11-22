@@ -16,13 +16,14 @@ use crate::fold::fold_signatures;
 use crate::hash::{blake3_hex, chunk_id};
 use crate::lang::Lang;
 use crate::last_node::last_complete_node;
+use crate::pe::functions::functions_file;
 use crate::pe::parse_file;
 use crate::props::component_props;
 use crate::symbols::{changed_symbols, Hunk};
 use crate::tokens;
 
 /// The protocol version; a client refuses a different major version.
-pub const PROTOCOL: &str = "1.3.0";
+pub const PROTOCOL: &str = "1.4.0";
 
 /// The most hunks one `ast.changed_symbols` request may carry; more is refused with -32602.
 pub const MAX_HUNKS: usize = 10_000;
@@ -39,6 +40,7 @@ const METHODS: &[(&str, Handler)] = &[
     ("ast.changed_symbols", ast_changed),
     ("ast.defs_uses", ast_defs_uses),
     ("pe.parse", pe_parse),
+    ("bin.functions", bin_functions),
     ("hash.blake3", hash_blake3),
     ("hash.chunk_id", hash_chunk_id),
     ("tokens.count", tokens_count),
@@ -81,6 +83,17 @@ struct DefsUsesParams {
 #[derive(Deserialize)]
 struct PeParams {
     path: String,
+}
+
+#[derive(Deserialize)]
+struct FunctionsParams {
+    path: String,
+    /// Where the page starts in the list of functions.
+    #[serde(default)]
+    offset: usize,
+    /// Only functions of at least this cyclomatic complexity are listed.
+    #[serde(default)]
+    min_cyclomatic: u32,
 }
 
 #[derive(Deserialize)]
@@ -182,6 +195,13 @@ fn ast_defs_uses(params: Value) -> Result<Value, CoreError> {
 /// `pe.parse`: the one method that reads a file, named by `path`.
 fn pe_parse(params: Value) -> Result<Value, CoreError> {
     call(params, |p: PeParams| parse_file(&p.path))
+}
+
+/// The functions of an executable image, a page at a time; PE is the only format read so far.
+fn bin_functions(params: Value) -> Result<Value, CoreError> {
+    call(params, |p: FunctionsParams| {
+        functions_file(&p.path, p.offset, p.min_cyclomatic)
+    })
 }
 
 fn hash_blake3(params: Value) -> Result<Value, CoreError> {

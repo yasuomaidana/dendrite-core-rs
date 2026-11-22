@@ -1,7 +1,9 @@
-//! Builds small PE images in memory for the tests of `pe.parse`, so no binary files live in the repository.
+//! Builds small PE images in memory for the tests of `pe.parse` and `bin.functions`, so no binary files live in
+//! the repository.
 //!
 //! Layout: DOS header, `PE\0\0`, COFF header, optional header with 16 data directories, the section table,
-//! `.text` (RVA 0x1000), and `.rdata` (RVA 0x2000) holding the import tables and then the export table.
+//! `.text` (RVA 0x1000, holding `code`), and `.rdata` (RVA 0x2000) holding the import tables, the export table
+//! and then the `.pdata` table with one 16-byte unwind info per entry.
 
 use std::path::PathBuf;
 
@@ -21,6 +23,10 @@ pub struct Spec {
     pub imports: Vec<(String, Vec<String>)>,
     /// One entry per ordinal slot (the first is ordinal 1): its name and its address (0 marks an unused slot).
     pub exports: Vec<(Option<String>, u32)>,
+    /// Machine code at the start of `.text` (at most 0x200 bytes), entry point included.
+    pub code: Vec<u8>,
+    /// `.pdata` entries: begin and end RVA, and whether the unwind info only chains to another entry.
+    pub pdata: Vec<(u32, u32, bool)>,
 }
 
 impl Default for Spec {
@@ -39,6 +45,8 @@ impl Spec {
             extra_sections: 0,
             imports: vec![],
             exports: vec![],
+            code: vec![],
+            pdata: vec![],
         }
     }
 }
@@ -132,6 +140,23 @@ fn export_blob(spec: &Spec, rva: u32) -> Vec<u8> {
     out
 }
 
+/// The `.pdata` table, then one unwind info per entry: version 1, and `UNW_FLAG_CHAININFO` when chained.
+fn pdata_blob(spec: &Spec, rva: u32) -> Vec<u8> {
+    let table = spec.pdata.len() as u32 * 12;
+    let mut out = Vec::new();
+    for (i, (begin, end, _)) in spec.pdata.iter().enumerate() {
+        for value in [*begin, *end, rva + table + i as u32 * 16] {
+            put32(&mut out, value);
+        }
+    }
+    for (_, _, chained) in &spec.pdata {
+        let mut unwind = [0u8; 16];
+        unwind[0] = 1 | (u8::from(*chained) * 4) << 3;
+        out.extend(unwind);
+    }
+    out
+}
+
 fn section(out: &mut Vec<u8>, name: &str, address: u32, size: u32, offset: u32, flags: u32) {
     let mut header = [0u8; 40];
     set(&mut header, 0, name.as_bytes());
@@ -148,7 +173,8 @@ fn section(out: &mut Vec<u8>, name: &str, address: u32, size: u32, offset: u32, 
 }
 
 /// The optional header: PE32 is 224 bytes, PE32+ 240; the data directories are its last 128.
-fn optional_header(spec: &Spec, headers: usize, imports: &[u8], exports: &[u8]) -> Vec<u8> {
+fn optional_header(spec: &Spec, headers: usize, blobs: [&[u8]; 3]) -> Vec<u8> {
+    let [imports, exports, pdata] = blobs;
     let len = if spec.plus { 240 } else { 224 };
     let mut opt = vec![0u8; len];
     set(
@@ -158,6 +184,7 @@ fn optional_header(spec: &Spec, headers: usize, imports: &[u8], exports: &[u8]) 
     );
     set(&mut opt, 16, &TEXT_RVA.to_le_bytes());
     set(&mut opt, 20, &TEXT_RVA.to_le_bytes());
+    let tables = DATA_RVA + imports.len() as u32;
     if spec.plus {
         set(&mut opt, 24, &0x1_4000_0000u64.to_le_bytes());
     } else {
@@ -170,8 +197,9 @@ fn optional_header(spec: &Spec, headers: usize, imports: &[u8], exports: &[u8]) 
     let directories = len - 128;
     set(&mut opt, directories - 4, &16u32.to_le_bytes());
     for (index, rva, size) in [
-        (0, DATA_RVA + imports.len() as u32, exports.len()),
+        (0, tables, exports.len()),
         (1, DATA_RVA, imports.len()),
+        (3, tables + exports.len() as u32, pdata.len()),
     ] {
         // An absent table has RVA 0, as in real images.
         set(
@@ -197,11 +225,13 @@ pub fn directory_offset(plus: bool, index: usize) -> usize {
 pub fn build(spec: &Spec) -> Vec<u8> {
     let imports = import_blob(spec, DATA_RVA);
     let exports = export_blob(spec, DATA_RVA + imports.len() as u32);
-    let blob = [imports.as_slice(), exports.as_slice()].concat();
-    let opt = optional_header(spec, 0, &imports, &exports);
+    let pdata = pdata_blob(spec, DATA_RVA + (imports.len() + exports.len()) as u32);
+    let blobs = [imports.as_slice(), exports.as_slice(), pdata.as_slice()];
+    let blob = blobs.concat();
+    let opt = optional_header(spec, 0, blobs);
     let sections = 1 + usize::from(!blob.is_empty()) + spec.extra_sections;
     let headers = (0x40 + 24 + opt.len() + 40 * sections).next_multiple_of(0x200);
-    let opt = optional_header(spec, headers, &imports, &exports);
+    let opt = optional_header(spec, headers, blobs);
     let mut out = b"MZ".to_vec();
     out.resize(0x3c, 0);
     put32(&mut out, 0x40);
@@ -233,6 +263,8 @@ pub fn build(spec: &Spec) -> Vec<u8> {
     for i in 0..spec.extra_sections {
         section(&mut out, &format!(".x{i}"), 0x10_0000, 0, 0, 0);
     }
+    out.resize(headers, 0);
+    out.extend(&spec.code);
     out.resize(headers + 0x200, 0);
     out.extend(blob);
     out
