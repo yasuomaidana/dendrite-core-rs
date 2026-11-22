@@ -16,12 +16,13 @@ use crate::fold::fold_signatures;
 use crate::hash::{blake3_hex, chunk_id};
 use crate::lang::Lang;
 use crate::last_node::last_complete_node;
+use crate::pe::parse_file;
 use crate::props::component_props;
 use crate::symbols::{changed_symbols, Hunk};
 use crate::tokens;
 
 /// The protocol version; a client refuses a different major version.
-pub const PROTOCOL: &str = "1.2.0";
+pub const PROTOCOL: &str = "1.3.0";
 
 /// The most hunks one `ast.changed_symbols` request may carry; more is refused with -32602.
 pub const MAX_HUNKS: usize = 10_000;
@@ -37,6 +38,7 @@ const METHODS: &[(&str, Handler)] = &[
     ("ast.last_complete_node", ast_last_node),
     ("ast.changed_symbols", ast_changed),
     ("ast.defs_uses", ast_defs_uses),
+    ("pe.parse", pe_parse),
     ("hash.blake3", hash_blake3),
     ("hash.chunk_id", hash_chunk_id),
     ("tokens.count", tokens_count),
@@ -74,6 +76,11 @@ struct ChangedParams {
 struct DefsUsesParams {
     source: String,
     ranges: Vec<Hunk>,
+}
+
+#[derive(Deserialize)]
+struct PeParams {
+    path: String,
 }
 
 #[derive(Deserialize)]
@@ -170,6 +177,11 @@ fn ast_defs_uses(params: Value) -> Result<Value, CoreError> {
     call_lang(params, |lang, p: DefsUsesParams| {
         Ok(defs_uses(lang, &p.source, &p.ranges))
     })
+}
+
+/// `pe.parse`: the one method that reads a file, named by `path`.
+fn pe_parse(params: Value) -> Result<Value, CoreError> {
+    call(params, |p: PeParams| parse_file(&p.path))
 }
 
 fn hash_blake3(params: Value) -> Result<Value, CoreError> {

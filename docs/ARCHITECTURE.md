@@ -97,21 +97,35 @@ Extracts the props of UI components from their parse trees for Svelte 5 (`$props
 
 Props declared in destructured parameters and in type annotations/interfaces (`interface Props`, `type Props = {...}`) are merged. Declared types are resolved by name, including intersections (`Base & {...}`) and generics (`Props<T>`, resolved through the name); a cycle of aliases ends instead of looping. For `const Button: FC<Props> = ({ a }) => ...` the type comes from the annotation when the parameter has none. `jsx` is an alias of `javascript`.
 
+### 2.11 `pe.parse`
+Input: `{path}` (absolute, or relative to the working directory of the sidecar). Output:
+`{machine, subsystem, pe32_plus, entry_point, image_base, sections: [{name, virtual_address, virtual_size, raw_size, flags}], imports: [{dll, functions}], exports, truncated}`.
+
+The one method that reads a file instead of a string from the request; it reads a regular file of at most 256 MiB and nothing else (no FIFO, no directory). PE32 and PE32+ images are read with the bounds-checked parser of the `object` crate, so a damaged or hostile file is an error, never a panic, a hang or an unbounded allocation.
+- **Addresses** (`entry_point`, `image_base`, `virtual_address`) are hex strings (`0x140001000`), so 64-bit values survive JSON. `entry_point` is the image base plus the entry RVA; a section's `virtual_address` is an RVA.
+- **machine:** `x86`, `x86_64`, `arm`, `arm64`, or the code in hex. **subsystem:** `native`, `gui`, `console`, `posix`, `windows_ce`, `efi_application`, `efi_boot_driver`, `efi_runtime_driver`, `xbox`, or the code in hex.
+- **flags:** any of `code`, `initialized_data`, `uninitialized_data`, `execute`, `read`, `write`, `shared`, `discardable`, in that order.
+- **imports:** the functions of each DLL in table order; an import by ordinal is `#<ordinal>`. Delay-load imports are not read.
+- **exports:** names in ordinal order; an export without a name is `#<ordinal>`, an unused ordinal slot is skipped, a forwarder is listed by its name.
+- **Caps** keep the answer small (about 3,000 tokens at most): DLLs, imported functions and exports share one budget of 500 names, spent in that order, so a huge import table can leave no room for exports; a name is cut to 256 bytes; at most 96 sections are listed; an export table of more than 65,536 entries is not read. Whenever a cap cuts something, `truncated` is `true`.
+- **A damaged import or export table** does not fail the call: the answer holds what was read before the damage.
+- **Errors:** a file that cannot be read, is not a regular file, is larger than 256 MiB, is shorter than a DOS header, has no `MZ` or `PE\0\0` signature, or whose headers or section table point outside the file is `-32602` with `data.kind` `not_pe`.
+
 ### Source layout
 
-The syntax analysis lives in `src/ast/` (languages and their node tables, parsing, complexity, folding, last complete node, changed symbols, defs and uses, component props), re-exported at the crate root so `dendrite_core::complexity` and the other paths do not change. `src/rpc.rs` is the JSON-RPC server, `src/hash.rs` and `src/tokens.rs` the rest of the operations.
+The syntax analysis lives in `src/ast/` (languages and their node tables, parsing, complexity, folding, last complete node, changed symbols, defs and uses, component props), re-exported at the crate root so `dendrite_core::complexity` and the other paths do not change. `src/rpc.rs` is the JSON-RPC server, `src/pe.rs` the PE reader, `src/hash.rs` and `src/tokens.rs` the rest of the operations.
 
 ## 3. Protocol
 
-JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. This repository does not ship a `proto/` schema directory; method contracts are documented in the RPC implementation and the architecture docs. Protocol 1.1.0 added `ast.complexity_batch`: `{files: [{lang, source}]}` returns `{results: [{functions} | {error}]}` in request order, measured on up to one thread per core. Protocol 1.1.1 bounds `ast.changed_symbols`: a request carries at most 10000 hunks (more is refused with -32602), a hunk is clamped to the file, and a hunk that starts past the last line maps to nothing. Protocol 1.2.0 added `ast.component_props`: `{lang, source}` returns `{props: [{name, type?, optional, default?, rest, line}]}`.
+JSON-RPC 2.0, one message per line on stdin/stdout, logs on stderr. `health` returns `{name: "dendrite-core", version, protocol}`, where `protocol` is a semver string; clients refuse a different major version. This repository does not ship a `proto/` schema directory; method contracts are documented in the RPC implementation and the architecture docs. Protocol 1.1.0 added `ast.complexity_batch`: `{files: [{lang, source}]}` returns `{results: [{functions} | {error}]}` in request order, measured on up to one thread per core. Protocol 1.1.1 bounds `ast.changed_symbols`: a request carries at most 10000 hunks (more is refused with -32602), a hunk is clamped to the file, and a hunk that starts past the last line maps to nothing. Protocol 1.2.0 added `ast.component_props`: `{lang, source}` returns `{props: [{name, type?, optional, default?, rest, line}]}`. Protocol 1.3.0 added `pe.parse`: `{path}` returns the headers, sections, imports and exports of a PE image (section 2.11).
 
-Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-32602` invalid params (unknown language, bad base64, a missing field), `-32000` operation error with `data.kind` (`no_complete_node`). Syntax errors never fail an operation: they appear in the tree and each operation works around them. A request without an `id` is a notification and gets no answer.
+Error codes: `-32700` not JSON, `-32600` no method, `-32601` unknown method, `-32602` invalid params (unknown language, bad base64, a missing field, a file that is not a PE image with `data.kind` `not_pe`), `-32000` operation error with `data.kind` (`no_complete_node`). Syntax errors never fail an operation: they appear in the tree and each operation works around them. A request without an `id` is a notification and gets no answer.
 
 ### 3.1 Status
 
 | Method | State |
 |---|---|
-| `health`, `ast.complexity`, `ast.fold_signatures`, `ast.last_complete_node`, `ast.changed_symbols`, `ast.defs_uses`, `ast.component_props`, `hash.blake3`, `hash.chunk_id`, `tokens.count` | implemented |
+| `health`, `ast.complexity`, `ast.fold_signatures`, `ast.last_complete_node`, `ast.changed_symbols`, `ast.defs_uses`, `ast.component_props`, `pe.parse`, `hash.blake3`, `hash.chunk_id`, `tokens.count` | implemented |
 | `cfg.slice`, `isr.extract` | not implemented (DCORE-5 and later); the server answers `-32601` |
 | exact `tokens.count` | needs bundled tokenizer files |
 

@@ -56,6 +56,8 @@ fn answers(
 #[case::missing_field_defs_uses("ast.defs_uses", json!({"lang": "go", "source": ""}), -32602, None)]
 #[case::missing_field_props("ast.component_props", json!({"lang": "svelte"}), -32602, None)]
 #[case::missing_field("ast.complexity", json!({"lang": "go"}), -32602, None)]
+#[case::missing_path_pe("pe.parse", json!({}), -32602, None)]
+#[case::no_such_file_pe("pe.parse", json!({"path": "/no/such/dir/x.exe"}), -32602, Some("not_pe"))]
 #[case::missing_files_batch("ast.complexity_batch", json!({}), -32602, None)]
 #[case::missing_field_fold("ast.fold_signatures", json!({"lang": "go"}), -32602, None)]
 #[case::missing_field_last("ast.last_complete_node", json!({"lang": "go"}), -32602, None)]
@@ -282,4 +284,13 @@ fn component_props_rpc(#[case] lang: &str, #[case] source: &str, #[case] want: V
         json!({"lang": lang, "source": source}),
     );
     assert_eq!(r["result"]["props"], want_props);
+}
+
+#[test]
+fn pe_parse_reads_the_file_it_is_given() {
+    let path =
+        crate::pe::fixture::write_temp("rpc", &crate::pe::fixture::build(&Default::default()));
+    let r = request("pe.parse", json!({"path": path.to_str().unwrap()}));
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(r.pointer("/result/machine"), Some(&json!("x86_64")));
 }
