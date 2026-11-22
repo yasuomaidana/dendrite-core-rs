@@ -74,6 +74,8 @@ pub struct Found {
     pub cyclomatic: u32,
     pub blocks: usize,
     pub instructions: usize,
+    /// True when a budget stopped the walk of this function, so `cyclomatic` is a lower bound.
+    pub partial: bool,
 }
 
 /// Every function of one image, by RVA.
@@ -99,6 +101,8 @@ pub struct Function {
     pub rva: String,
     pub blocks: usize,
     pub instructions: usize,
+    /// True when the walk of this function was cut short: `cyclomatic` is then a lower bound.
+    pub partial: bool,
 }
 
 /// What `bin.functions` answers.
@@ -250,6 +254,7 @@ fn discover(
                 cyclomatic: walked.cyclomatic,
                 blocks: walked.blocks,
                 instructions: walked.instructions,
+                partial: walked.truncated,
             },
         );
     }
@@ -313,6 +318,7 @@ fn listed(found: &Found, image_base: u64) -> Function {
         rva: hex(found.start.into()),
         blocks: found.blocks,
         instructions: found.instructions,
+        partial: found.partial,
     }
 }
 

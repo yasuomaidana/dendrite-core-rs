@@ -112,14 +112,14 @@ The one method that reads a file instead of a string from the request; it reads 
 - **Errors:** a file that cannot be read, is not a regular file, is larger than 256 MiB, is shorter than a DOS header, has no `MZ` or `PE\0\0` signature, or whose headers or section table point outside the file is `-32602` with `data.kind` `not_pe`.
 
 ### 2.12 `bin.functions`
-Input: `{path, offset?, min_cyclomatic?}`. Output: `{format, arch, total, offset, next_offset, truncated, functions: [{start, end, size, name, cyclomatic, address, rva, blocks, instructions}]}`.
+Input: `{path, offset?, min_cyclomatic?}`. Output: `{format, arch, total, offset, next_offset, truncated, functions: [{start, end, size, name, cyclomatic, address, rva, blocks, instructions, partial}]}`.
 
 Lists the functions of an executable image with their cyclomatic complexity, a page at a time. The method name is format-neutral on purpose: `format` says which reader answered, and only `pe` (PE32 and PE32+ on x86 and x86-64) is implemented; an ELF or Mach-O image is `-32602` with `data.kind` `unsupported_format`, and a PE image for another machine (ARM, ARM64) is `unsupported_machine`. The file is read as in `pe.parse` (a regular file of at most 256 MiB).
 - **Where functions start:** the `.pdata` table of a PE32+ image (which also gives the exact end; an entry that only chains to another is skipped), the entry point, the exports (named), and the targets of direct calls and of jumps that leave a function (tail calls) found while walking. Without `.pdata` a function ends where its walk ends, so a forward jump into code that nothing names is taken for a branch inside the function and the boundaries are a heuristic. Instructions are decoded with `iced-x86`.
 - **Complexity** is `E - N + 2` over the control-flow graph of the function, at least 1, so a straight function is 1 and every conditional branch adds 1. A jump through a register (a jump table) is an exit and is not followed, so a function with a `switch` is undercounted. `blocks` and `instructions` are counted over the instructions reached.
 - **Addresses:** `start`, `end` and `rva` are RVAs (`rva` equals `start`) and `address` is the virtual address, all hex strings; `size` is `end - start`. `name` is `null` when the image gives none; names are cut to 64 bytes.
 - **Pages:** at most 48 functions in RVA order (under 4,000 tokens even with the longest names). `min_cyclomatic` filters before paging and `total` counts what passes. `next_offset` is where the next page starts, `null` on the last; an `offset` past the end gives an empty page. The analysis of the last image is kept (keyed by path, size and modification time), so reading all the pages costs one analysis.
-- **Budgets** stop a hostile or huge image: 20,000 instructions per function, 2,000,000 per image and 200,000 functions; `truncated` is `true` when one was spent.
+- **Budgets** stop a hostile or huge image: 20,000 instructions per function, 2,000,000 per image and 200,000 functions; `truncated` is `true` when one was spent. A function whose own walk was cut short has `partial: true` and its `cyclomatic` is a lower bound; a function the image budget left unwalked is not listed.
 - **Errors:** as `pe.parse` (`not_pe`), plus `unsupported_format` and `unsupported_machine`. A file cut short inside the code is `not_pe`.
 
 ### Source layout

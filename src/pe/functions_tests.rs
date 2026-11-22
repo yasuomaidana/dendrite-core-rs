@@ -135,7 +135,7 @@ fn the_page_carries_both_addresses_and_the_sizes(pe64: Vec<u8>) {
     assert_eq!(
         serde_json::to_value(&page.functions[1]).unwrap(),
         json!({"start": "0x1010", "end": "0x1021", "size": 17, "name": "Branchy", "cyclomatic": 2,
-               "address": "0x140001010", "rva": "0x1010", "blocks": 4, "instructions": 6})
+               "address": "0x140001010", "rva": "0x1010", "blocks": 4, "instructions": 6, "partial": false})
     );
 }
 
@@ -188,6 +188,25 @@ fn a_spent_budget_cuts_the_analysis_and_says_so(pe64: Vec<u8>, #[case] budget: B
     assert!(analysis.functions.len() < 6 || budget.function == 1);
 }
 
+#[rstest]
+fn a_function_cut_by_its_budget_is_partial(pe64: Vec<u8>) {
+    let budget = Budget {
+        function: 1,
+        ..Budget::default()
+    };
+    let analysis = analyse(&pe64, &budget).unwrap();
+    let cut: Vec<u32> = analysis
+        .functions
+        .iter()
+        .filter(|found| found.partial)
+        .map(|found| found.start)
+        .collect();
+    // The function at 0x1060 is one `jmp`, which the budget of one instruction covers.
+    assert_eq!(cut, [0x1000, 0x1010, 0x1030, 0x1050, 0x1070]);
+    let whole = analyse(&pe64, &Budget::default()).unwrap();
+    assert!(whole.functions.iter().all(|found| !found.partial));
+}
+
 fn many(count: usize, name: Option<String>) -> Analysis {
     let found = |i: usize| Found {
         start: 0x1000 + 0x10 * i as u32,
@@ -196,6 +215,7 @@ fn many(count: usize, name: Option<String>) -> Analysis {
         cyclomatic: 1 + (i % 3) as u32,
         blocks: 1,
         instructions: 2,
+        partial: false,
     };
     Analysis {
         arch: "x86_64",
