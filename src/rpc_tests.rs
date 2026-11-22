@@ -56,6 +56,9 @@ fn answers(
 #[case::missing_field_defs_uses("ast.defs_uses", json!({"lang": "go", "source": ""}), -32602, None)]
 #[case::missing_field_props("ast.component_props", json!({"lang": "svelte"}), -32602, None)]
 #[case::missing_field("ast.complexity", json!({"lang": "go"}), -32602, None)]
+#[case::missing_path_functions("bin.functions", json!({}), -32602, None)]
+#[case::no_such_file_functions("bin.functions", json!({"path": "/no/such/dir/x.exe"}), -32602, Some("not_pe"))]
+#[case::negative_offset_functions("bin.functions", json!({"path": "x", "offset": -1}), -32602, None)]
 #[case::missing_path_pe("pe.parse", json!({}), -32602, None)]
 #[case::no_such_file_pe("pe.parse", json!({"path": "/no/such/dir/x.exe"}), -32602, Some("not_pe"))]
 #[case::missing_files_batch("ast.complexity_batch", json!({}), -32602, None)]
@@ -293,4 +296,28 @@ fn pe_parse_reads_the_file_it_is_given() {
     let r = request("pe.parse", json!({"path": path.to_str().unwrap()}));
     std::fs::remove_file(&path).unwrap();
     assert_eq!(r.pointer("/result/machine"), Some(&json!("x86_64")));
+}
+
+#[test]
+fn bin_functions_lists_the_functions_of_the_file_it_is_given() {
+    let fixture = crate::pe::fixture::Spec {
+        code: vec![0x31, 0xC0, 0xC3],
+        ..Default::default()
+    };
+    let path =
+        crate::pe::fixture::write_temp("rpc-functions", &crate::pe::fixture::build(&fixture));
+    let r = request("bin.functions", json!({"path": path.to_str().unwrap()}));
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(r.pointer("/result/format"), Some(&json!("pe")));
+    assert_eq!(
+        r.pointer("/result/functions/0/start"),
+        Some(&json!("0x1000"))
+    );
+    assert_eq!(r.pointer("/result/functions/0/cyclomatic"), Some(&json!(1)));
+}
+
+#[test]
+fn an_older_sidecar_method_is_still_unknown_to_health() {
+    let r = request("health", json!({}));
+    assert_eq!(r.pointer("/result/protocol"), Some(&json!("1.4.0")));
 }
