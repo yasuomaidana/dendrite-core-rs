@@ -33,12 +33,8 @@ struct Walk {
 /// The package names directly in a `node_modules` directory, scoped ones as `@scope/name`.
 fn module_names(dir: &Path) -> Vec<String> {
     let children = |path: &Path| -> Vec<String> {
-        let Ok(read) = fs::read_dir(path) else {
-            return Vec::new();
-        };
-        let names = read
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().into_owned());
+        let read = fs::read_dir(path).into_iter().flatten().flatten();
+        let names = read.map(|e| e.file_name().to_string_lossy().into_owned());
         names.take(MAX_MODULES).collect()
     };
     let mut names = Vec::new();
@@ -62,13 +58,12 @@ impl Walk {
         queue: &mut VecDeque<(PathBuf, String, usize)>,
         depth: usize,
     ) {
-        let Ok(kind) = entry.file_type() else {
-            return;
-        };
+        let kind = entry.file_type().ok();
+        let is = |test: fn(&fs::FileType) -> bool| kind.as_ref().is_some_and(test);
         let name = entry.file_name().to_string_lossy().into_owned();
-        if kind.is_symlink() {
+        if is(fs::FileType::is_symlink) {
             self.files.push((rel, 0, "link"));
-        } else if kind.is_file() {
+        } else if is(fs::FileType::is_file) {
             let size = entry.metadata().map_or(0, |m| m.len());
             self.files.push((rel.clone(), size, kind_of(&rel)));
         } else if SKIPPED.contains(&name.as_str()) {

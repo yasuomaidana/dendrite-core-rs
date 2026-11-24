@@ -401,6 +401,12 @@ fn an_asar_nested_deeper_than_the_cap_or_larger_than_it_says_it_was_cut() {
     assert!(image.truncated);
 }
 
+#[test]
+fn a_directory_whose_files_is_not_a_table_lists_nothing() {
+    let header = json!({"files": {"d": {"files": 5}, "a.js": {"size": 1}}});
+    assert_eq!(paths(&inspect_bytes(&asar(&header, b""))), ["a.js"]);
+}
+
 fn raw_asar(json_len: u32, json: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     for value in [4u32, 8, 4, json_len] {
