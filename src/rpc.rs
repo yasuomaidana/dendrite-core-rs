@@ -24,7 +24,7 @@ use crate::symbols::{changed_symbols, Hunk};
 use crate::tokens;
 
 /// The protocol version; a client refuses a different major version.
-pub const PROTOCOL: &str = "1.5.0";
+pub const PROTOCOL: &str = "1.6.0";
 
 /// The most hunks one `ast.changed_symbols` request may carry; more is refused with -32602.
 pub const MAX_HUNKS: usize = 10_000;

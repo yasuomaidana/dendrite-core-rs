@@ -57,18 +57,23 @@ fn runs(data: &[u8]) -> impl Iterator<Item = &[u8]> {
         .map(|run| &run[..run.len().min(MAX_LEN)])
 }
 
-/// The strings worth reading, best first, as many as the budget allows.
-pub fn strings(data: &[u8], budget: &mut Budget) -> Vec<String> {
-    let scanned = &data[..data.len().min(MAX_SCAN)];
+/// The best of `candidates` (URLs first, then paths, format strings and the rest), as many as the budget allows.
+/// Only [`PER_RANK`] candidates are kept for each rank, so memory stays bounded.
+pub fn ranked<'a>(candidates: impl Iterator<Item = &'a [u8]>, budget: &mut Budget) -> Vec<String> {
     let mut ranked: [Vec<&[u8]>; 4] = Default::default();
-    for run in runs(scanned) {
-        let bucket = &mut ranked[rank(run)];
+    for text in candidates {
+        let bucket = &mut ranked[rank(text)];
         if bucket.len() < PER_RANK {
-            bucket.push(run);
+            bucket.push(text);
         }
     }
-    budget.cut(data.len() > MAX_SCAN);
     budget.take_all(ranked.iter().flatten().copied())
+}
+
+/// The strings worth reading, best first, as many as the budget allows.
+pub fn strings(data: &[u8], budget: &mut Budget) -> Vec<String> {
+    budget.cut(data.len() > MAX_SCAN);
+    ranked(runs(&data[..data.len().min(MAX_SCAN)]), budget)
 }
 
 #[cfg(test)]
