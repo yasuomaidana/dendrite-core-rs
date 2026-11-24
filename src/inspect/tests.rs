@@ -131,6 +131,15 @@ fn an_elf_program_reports_its_dynamic_section_and_symbols() {
 }
 
 #[test]
+fn the_notes_of_an_elf_survive_a_budget_the_symbols_would_spend() {
+    let bytes = build_elf(&ElfSpec::program());
+    let image = elf::inspect(&bytes, &mut Budget::new(130)).unwrap();
+    assert_eq!(image.notes["soname"], "mylib.so");
+    assert_eq!(image.notes["interpreter"], "/lib64/ld-linux-x86-64.so.2");
+    assert!(image.exports.is_empty());
+}
+
+#[test]
 fn with_one_needed_library_every_import_is_credited_to_it() {
     let spec = ElfSpec {
         needed: vec!["libc.so.6"],

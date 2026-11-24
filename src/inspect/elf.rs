@@ -214,11 +214,22 @@ fn read<Elf: FileHeader<Endian = Endianness>>(data: &[u8], budget: &mut Budget) 
         .filter(|p| p.p_type(endian) == PT_LOAD)
         .map(|p| p.p_vaddr(endian).into())
         .min();
+    // The notes are few and say the most, so they are paid for before the long lists.
+    let mut notes = std::collections::BTreeMap::new();
+    for (key, value) in [
+        ("interpreter", interpreter.clone()),
+        ("rpath", dynamic.rpath.clone()),
+        ("soname", dynamic.soname.clone()),
+    ] {
+        if let Some(text) = value.and_then(|v| budget.take(v.as_bytes())) {
+            notes.insert(key, text);
+        }
+    }
     let sections = sections(&file, budget);
     let (raw, defined) = symbols(&file, data, &dynamic.needed);
     let libraries = budget.libraries(raw);
     let exports = budget.take_all(defined.iter().map(String::as_bytes));
-    let mut image = Image {
+    let image = Image {
         kind: kind(file.elf_header().e_type(endian), interpreter.is_some()),
         format: "elf",
         arch: Some(arch_name(file.architecture())),
@@ -229,16 +240,8 @@ fn read<Elf: FileHeader<Endian = Endianness>>(data: &[u8], budget: &mut Budget) 
         sections,
         libraries,
         exports,
+        notes,
         ..Image::default()
     };
-    for (key, value) in [
-        ("interpreter", interpreter),
-        ("rpath", dynamic.rpath),
-        ("soname", dynamic.soname),
-    ] {
-        if let Some(text) = value.and_then(|v| budget.take(v.as_bytes())) {
-            image.notes.insert(key, text);
-        }
-    }
     Some(image)
 }
