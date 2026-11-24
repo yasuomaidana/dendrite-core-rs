@@ -8,6 +8,7 @@ pub mod batch;
 pub mod cache;
 pub mod error;
 pub mod hash;
+pub mod inspect;
 pub mod pe;
 pub mod rpc;
 pub mod tokens;

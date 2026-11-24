@@ -19,6 +19,8 @@ pub enum CoreError {
     UnsupportedFormat(String),
     #[error("unsupported machine: {0}")]
     UnsupportedMachine(String),
+    #[error("cannot inspect: {0}")]
+    Unreadable(String),
 }
 
 impl CoreError {
@@ -30,7 +32,8 @@ impl CoreError {
             | CoreError::InvalidParams(_)
             | CoreError::NotPe(_)
             | CoreError::UnsupportedFormat(_)
-            | CoreError::UnsupportedMachine(_) => -32602,
+            | CoreError::UnsupportedMachine(_)
+            | CoreError::Unreadable(_) => -32602,
             _ => -32000,
         }
     }
@@ -42,6 +45,7 @@ impl CoreError {
             CoreError::NotPe(_) => "not_pe",
             CoreError::UnsupportedFormat(_) => "unsupported_format",
             CoreError::UnsupportedMachine(_) => "unsupported_machine",
+            CoreError::Unreadable(_) => "unreadable",
             _ => "",
         }
     }
@@ -60,6 +64,7 @@ mod tests {
     #[case(CoreError::NotPe("x".into()), -32602, "not_pe")]
     #[case(CoreError::UnsupportedFormat("x".into()), -32602, "unsupported_format")]
     #[case(CoreError::UnsupportedMachine("x".into()), -32602, "unsupported_machine")]
+    #[case(CoreError::Unreadable("x".into()), -32602, "unreadable")]
     fn codes_and_kinds(#[case] err: CoreError, #[case] code: i64, #[case] kind: &str) {
         assert_eq!((err.code(), err.kind()), (code, kind));
         assert!(!err.to_string().is_empty());
