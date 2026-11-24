@@ -59,6 +59,8 @@ fn answers(
 #[case::missing_path_functions("bin.functions", json!({}), -32602, None)]
 #[case::no_such_file_functions("bin.functions", json!({"path": "/no/such/dir/x.exe"}), -32602, Some("not_pe"))]
 #[case::negative_offset_functions("bin.functions", json!({"path": "x", "offset": -1}), -32602, None)]
+#[case::missing_path_inspect("bin.inspect", json!({}), -32602, None)]
+#[case::no_such_file_inspect("bin.inspect", json!({"path": "/no/such/dir/x"}), -32602, Some("unreadable"))]
 #[case::missing_path_pe("pe.parse", json!({}), -32602, None)]
 #[case::no_such_file_pe("pe.parse", json!({"path": "/no/such/dir/x.exe"}), -32602, Some("not_pe"))]
 #[case::missing_files_batch("ast.complexity_batch", json!({}), -32602, None)]
@@ -317,7 +319,44 @@ fn bin_functions_lists_the_functions_of_the_file_it_is_given() {
 }
 
 #[test]
+fn bin_inspect_describes_an_unknown_file_as_data_and_not_as_an_error() {
+    let path =
+        crate::pe::fixture::write_temp("rpc-inspect", b"see https://example.test/x for details");
+    let r = request("bin.inspect", json!({"path": path.to_str().unwrap()}));
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(r.pointer("/error"), None);
+    assert_eq!(r.pointer("/result/kind"), Some(&json!("data")));
+    assert_eq!(r.pointer("/result/format"), Some(&json!("unknown")));
+    assert_eq!(r.pointer("/result/truncated"), Some(&json!(false)));
+    assert_eq!(
+        r.pointer("/result/strings/0"),
+        Some(&json!("see https://example.test/x for details"))
+    );
+}
+
+#[test]
+fn bin_inspect_reads_a_pe_image_like_pe_parse_does() {
+    let fixture = crate::pe::fixture::Spec::default();
+    let path =
+        crate::pe::fixture::write_temp("rpc-inspect-pe", &crate::pe::fixture::build(&fixture));
+    let (inspect, parse) = (
+        request("bin.inspect", json!({"path": path.to_str().unwrap()})),
+        request("pe.parse", json!({"path": path.to_str().unwrap()})),
+    );
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(inspect.pointer("/result/format"), Some(&json!("pe")));
+    assert_eq!(
+        inspect.pointer("/result/entry"),
+        parse.pointer("/result/entry_point")
+    );
+    assert_eq!(
+        inspect.pointer("/result/base"),
+        parse.pointer("/result/image_base")
+    );
+}
+
+#[test]
 fn an_older_sidecar_method_is_still_unknown_to_health() {
     let r = request("health", json!({}));
-    assert_eq!(r.pointer("/result/protocol"), Some(&json!("1.4.0")));
+    assert_eq!(r.pointer("/result/protocol"), Some(&json!("1.5.0")));
 }

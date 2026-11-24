@@ -14,6 +14,7 @@ use crate::defs_uses::defs_uses;
 use crate::error::CoreError;
 use crate::fold::fold_signatures;
 use crate::hash::{blake3_hex, chunk_id};
+use crate::inspect::inspect_path;
 use crate::lang::Lang;
 use crate::last_node::last_complete_node;
 use crate::pe::functions::functions_file;
@@ -23,7 +24,7 @@ use crate::symbols::{changed_symbols, Hunk};
 use crate::tokens;
 
 /// The protocol version; a client refuses a different major version.
-pub const PROTOCOL: &str = "1.4.0";
+pub const PROTOCOL: &str = "1.5.0";
 
 /// The most hunks one `ast.changed_symbols` request may carry; more is refused with -32602.
 pub const MAX_HUNKS: usize = 10_000;
@@ -41,6 +42,7 @@ const METHODS: &[(&str, Handler)] = &[
     ("ast.defs_uses", ast_defs_uses),
     ("pe.parse", pe_parse),
     ("bin.functions", bin_functions),
+    ("bin.inspect", bin_inspect),
     ("hash.blake3", hash_blake3),
     ("hash.chunk_id", hash_chunk_id),
     ("tokens.count", tokens_count),
@@ -202,6 +204,11 @@ fn bin_functions(params: Value) -> Result<Value, CoreError> {
     call(params, |p: FunctionsParams| {
         functions_file(&p.path, p.offset, p.min_cyclomatic)
     })
+}
+
+/// What any file is, in one shape: PE, ELF and Mach-O images, or unknown data.
+fn bin_inspect(params: Value) -> Result<Value, CoreError> {
+    call(params, |p: PeParams| inspect_path(&p.path))
 }
 
 fn hash_blake3(params: Value) -> Result<Value, CoreError> {
