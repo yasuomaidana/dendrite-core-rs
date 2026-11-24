@@ -152,6 +152,21 @@ impl Budget {
         libraries
     }
 
+    /// The notes that have a value, each charged to the budget. They are few and say the most, so a format pays for
+    /// them before its long lists.
+    pub fn notes(
+        &mut self,
+        pairs: impl IntoIterator<Item = (&'static str, Option<String>)>,
+    ) -> BTreeMap<&'static str, String> {
+        let mut notes = BTreeMap::new();
+        for (key, value) in pairs {
+            if let Some(text) = value.and_then(|v| self.take(v.as_bytes())) {
+                notes.insert(key, text);
+            }
+        }
+        notes
+    }
+
     /// Notes that a cap other than the budget cut something.
     pub fn cut(&mut self, cut: bool) {
         self.truncated |= cut;

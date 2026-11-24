@@ -214,17 +214,11 @@ fn read<Elf: FileHeader<Endian = Endianness>>(data: &[u8], budget: &mut Budget) 
         .filter(|p| p.p_type(endian) == PT_LOAD)
         .map(|p| p.p_vaddr(endian).into())
         .min();
-    // The notes are few and say the most, so they are paid for before the long lists.
-    let mut notes = std::collections::BTreeMap::new();
-    for (key, value) in [
+    let notes = budget.notes([
         ("interpreter", interpreter.clone()),
         ("rpath", dynamic.rpath.clone()),
         ("soname", dynamic.soname.clone()),
-    ] {
-        if let Some(text) = value.and_then(|v| budget.take(v.as_bytes())) {
-            notes.insert(key, text);
-        }
-    }
+    ]);
     let sections = sections(&file, budget);
     let (raw, defined) = symbols(&file, data, &dynamic.needed);
     let libraries = budget.libraries(raw);

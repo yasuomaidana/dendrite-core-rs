@@ -335,6 +335,25 @@ fn bin_inspect_describes_an_unknown_file_as_data_and_not_as_an_error() {
 }
 
 #[test]
+fn bin_inspect_lists_a_directory_and_a_zip() {
+    let dir = crate::pe::fixture::temp_path("rpc-inspect-dir");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.rs"), "fn main() {}").unwrap();
+    let r = request("bin.inspect", json!({"path": dir.to_str().unwrap()}));
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(r.pointer("/result/format"), Some(&json!("source-tree")));
+    assert_eq!(r.pointer("/result/files/0/path"), Some(&json!("main.rs")));
+    let zipped = crate::pe::fixture::write_temp(
+        "rpc-inspect-zip",
+        &crate::inspect::package::fixture::zip(&[("a.txt", 3)], false),
+    );
+    let r = request("bin.inspect", json!({"path": zipped.to_str().unwrap()}));
+    std::fs::remove_file(&zipped).unwrap();
+    assert_eq!(r.pointer("/result/format"), Some(&json!("zip")));
+    assert_eq!(r.pointer("/result/files/0/size"), Some(&json!(3)));
+}
+
+#[test]
 fn bin_inspect_reads_a_pe_image_like_pe_parse_does() {
     let fixture = crate::pe::fixture::Spec::default();
     let path =
@@ -358,5 +377,5 @@ fn bin_inspect_reads_a_pe_image_like_pe_parse_does() {
 #[test]
 fn an_older_sidecar_method_is_still_unknown_to_health() {
     let r = request("health", json!({}));
-    assert_eq!(r.pointer("/result/protocol"), Some(&json!("1.5.0")));
+    assert_eq!(r.pointer("/result/protocol"), Some(&json!("1.6.0")));
 }

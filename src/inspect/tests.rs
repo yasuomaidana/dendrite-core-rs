@@ -8,6 +8,7 @@ use crate::tokens::estimate;
 
 use super::elf_fixture::{build as build_elf, Spec as ElfSpec};
 use super::macho_fixture::{build as build_macho, fat, Spec as MachoSpec};
+use super::package::fixture::{asar, asar_header, zip};
 
 const X86_64: u32 = 0x0100_0007;
 const ARM64: u32 = 0x0100_000c;
@@ -420,6 +421,9 @@ fn all_images() -> Vec<Vec<u8>> {
         }),
         slice.clone(),
         fat(&[slice], &[X86_64]),
+        zip(&[("AndroidManifest.xml", 5), ("lib/x86_64/a.so", 9)], false),
+        zip(&[("big.bin", 5_000_000_000)], true),
+        asar(&asar_header("{}"), b"{}"),
     ]
 }
 
@@ -508,15 +512,13 @@ fn a_big_text_file_spends_the_whole_budget_on_strings() {
 }
 
 #[test]
-fn a_path_is_read_from_disk_and_refused_when_it_is_not_a_file() {
+fn a_path_is_read_from_disk_and_refused_when_it_is_missing() {
     let path = write_temp("inspect", &build_elf(&ElfSpec::program()));
     let text = path.to_str().unwrap();
     assert_eq!(inspect_path(text).unwrap().format, "elf");
     fs::remove_file(&path).unwrap();
     let missing = inspect_path(text).unwrap_err();
     assert!(matches!(missing, CoreError::Unreadable(_)), "{missing}");
-    let dir = inspect_path(std::env::temp_dir().to_str().unwrap()).unwrap_err();
-    assert!(dir.to_string().contains("directory"), "{dir}");
 }
 
 #[test]
