@@ -149,7 +149,7 @@ impl Write for Failing {
 }
 
 #[rstest]
-#[case::version(&["dendrite-core", "--version"], "", 0, "dendrite-core 0.1.0")]
+#[case::version(&["dendrite-core", "--version"], "", 0, concat!("dendrite-core ", env!("CARGO_PKG_VERSION")))]
 #[case::serves(&["dendrite-core"], "{\"id\":1,\"method\":\"health\"}\n", 0, "")]
 #[case::other_arg(&["dendrite-core", "--unknown"], "{\"id\":1,\"method\":\"health\"}\n", 0, "")]
 #[case::empty_args(&[], "{\"id\":1,\"method\":\"health\"}\n", 0, "")]
